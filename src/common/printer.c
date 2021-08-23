@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "printer.h"
 #include "ascii.h"
@@ -34,8 +35,9 @@
   #include <unistd.h>
 #endif
 
-#define max(a,b) (((a)>(b))?(a):(b))
+#define LINE_BUFFER_SIZE    (1<<16)
 #define MAX_ATTRIBUTES      100
+#define MAX_TERM_SIZE       1024
 
 enum {
 #if defined(ARCH_X86) || defined(ARCH_PPC)
@@ -67,8 +69,10 @@ enum {
 };
 
 static const char* ATTRIBUTE_FIELDS [] = {
-#if defined(ARCH_X86) || defined(ARCH_PPC)
+#ifdef ARCH_X86
   "Name:",
+#elif ARCH_PPC
+  "Part Number:",
 #elif ARCH_ARM
   "SoC:",
   "",
@@ -95,6 +99,37 @@ static const char* ATTRIBUTE_FIELDS [] = {
   "Peak Performance:",
 };
 
+static const char* ATTRIBUTE_FIELDS_SHORT [] = {
+#if defined(ARCH_X86)
+  "Name:",
+#elif ARCH_PPC
+  "P/N:",
+#elif ARCH_ARM
+  "SoC:",
+  "",
+#endif
+  "Hypervisor:",
+  "uArch:",
+  "Technology:",
+  "Max Freq:",
+  "Sockets:",
+  "Cores:",
+  "Cores (Total):",
+#ifdef ARCH_X86
+  "AVX:",
+  "FMA:",
+#elif ARCH_PPC
+  "Altivec: ",
+#elif defined(ARCH_ARM)
+  "Features: ",
+#endif
+  "L1i Size:",
+  "L1d Size:",
+  "L2 Size:",
+  "L3 Size:",
+  "Peak Perf.:",
+};
+
 struct terminal {
   int w;
   int h;
@@ -111,9 +146,61 @@ struct ascii {
   struct attribute** attributes;
   uint32_t n_attributes_set;
   uint32_t additional_spaces;
+  bool new_intel_logo;
   VENDOR vendor;
   STYLE style;
 };
+
+struct line_buffer {
+  char* buf;
+  int pos;
+  int chars;
+};
+
+// Writes to the line buffer the output passed in fmt
+void printOut(struct line_buffer* lbuf, int chars, const char *fmt, ...) {
+  int buffer_size = 4096;
+  char buffer[buffer_size];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer,buffer_size, fmt, args);
+  va_end(args);
+
+  if(lbuf->pos > LINE_BUFFER_SIZE) {
+    printBug("Line buffer size exceeded. Max is %d, current position is %d", lbuf->pos, LINE_BUFFER_SIZE);
+  }
+  else {
+    lbuf->pos += sprintf(lbuf->buf + lbuf->pos, "%s", buffer);
+    lbuf->chars += chars;
+  }
+}
+
+// Writes a full line (restricting the output length) using the line buffer
+void printOutLine(struct line_buffer* lbuf, struct ascii* art, int termw) {
+  int chars_to_print = min(lbuf->chars, termw);
+  int pos = 0;
+
+  for(int i=0; i < chars_to_print; i++) {
+    while(lbuf->buf[pos] == '\x1b') {
+      // Skip color
+      while(lbuf->buf[pos] != 'm') {
+        printf("%c", lbuf->buf[pos]);
+        pos++;
+      }
+      printf("%c", lbuf->buf[pos]);
+      pos++;
+    }
+
+    printf("%c", lbuf->buf[pos]);
+    pos++;
+  }
+
+  // Make sure weset the color
+  printf("%s", art->reset);
+
+  lbuf->pos = 0;
+  lbuf->chars = 0;
+}
 
 void setAttribute(struct ascii* art, int type, char* value) {
   art->attributes[art->n_attributes_set]->value = value;
@@ -185,16 +272,16 @@ struct ascii* set_ascii(VENDOR vendor, STYLE style) {
   return art;
 }
 
-void parse_print_color(struct ascii* art, uint32_t* logo_pos) {
+void parse_print_color(struct ascii* art, struct line_buffer* lbuf, uint32_t* logo_pos) {
   struct ascii_logo* logo = art->art;
   char color_id_str = logo->art[*logo_pos + 2];
 
   if(color_id_str == 'R') {
-    printf("%s", art->reset);
+    printOut(lbuf, 0, "%s", art->reset);
   }
   else {
     int color_id = (color_id_str - '0') - 1;
-    printf("%s", logo->color_ascii[color_id]);
+    printOut(lbuf, 0, "%s", logo->color_ascii[color_id]);
   }
 
   *logo_pos += 3;
@@ -209,17 +296,28 @@ bool ascii_fits_screen(int termw, struct ascii_logo logo, int lf) {
 // on logo->replace_blocks
 void replace_bgbyfg_color(struct ascii_logo* logo) {
   // Replace background by foreground color
-  for(int i=0; i < 2; i++) {
+  for(int i=0; i < 3; i++) {
     if(logo->color_ascii[i] == NULL) break;
 
-    if(strcmp(logo->color_ascii[i], COLOR_BG_BLACK) == 0) strcpy(logo->color_ascii[i], COLOR_FG_BLACK);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_RED) == 0) strcpy(logo->color_ascii[i], COLOR_FG_RED);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_GREEN) == 0) strcpy(logo->color_ascii[i], COLOR_FG_GREEN);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_YELLOW) == 0) strcpy(logo->color_ascii[i], COLOR_FG_YELLOW);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_BLUE) == 0) strcpy(logo->color_ascii[i], COLOR_FG_BLUE);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_MAGENTA) == 0) strcpy(logo->color_ascii[i], COLOR_FG_MAGENTA);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_CYAN) == 0) strcpy(logo->color_ascii[i], COLOR_FG_CYAN);
-    else if(strcmp(logo->color_ascii[i], COLOR_BG_WHITE) == 0) strcpy(logo->color_ascii[i], COLOR_FG_WHITE);
+    if(strcmp(logo->color_ascii[i], C_BG_BLACK) == 0) strcpy(logo->color_ascii[i], C_FG_BLACK);
+    else if(strcmp(logo->color_ascii[i], C_BG_RED) == 0) strcpy(logo->color_ascii[i], C_FG_RED);
+    else if(strcmp(logo->color_ascii[i], C_BG_GREEN) == 0) strcpy(logo->color_ascii[i], C_FG_GREEN);
+    else if(strcmp(logo->color_ascii[i], C_BG_YELLOW) == 0) strcpy(logo->color_ascii[i], C_FG_YELLOW);
+    else if(strcmp(logo->color_ascii[i], C_BG_BLUE) == 0) strcpy(logo->color_ascii[i], C_FG_BLUE);
+    else if(strcmp(logo->color_ascii[i], C_BG_MAGENTA) == 0) strcpy(logo->color_ascii[i], C_FG_MAGENTA);
+    else if(strcmp(logo->color_ascii[i], C_BG_CYAN) == 0) strcpy(logo->color_ascii[i], C_FG_CYAN);
+    else if(strcmp(logo->color_ascii[i], C_BG_WHITE) == 0) strcpy(logo->color_ascii[i], C_FG_WHITE);
+  }
+}
+
+struct ascii_logo* choose_ascii_art_aux(struct ascii_logo* logo_long, struct ascii_logo* logo_short, struct terminal* term, int lf) {
+  if(show_logo_long()) return logo_long;
+  if(show_logo_short()) return logo_short;
+  if(ascii_fits_screen(term->w, *logo_long, lf)) {
+    return logo_long;
+  }
+  else {
+    return logo_short;
   }
 }
 
@@ -227,25 +325,21 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
   // 1. Choose logo
 #ifdef ARCH_X86
   if(art->vendor == CPU_VENDOR_INTEL) {
-    if(term != NULL && ascii_fits_screen(term->w, logo_intel_l, lf))
-      art->art = &logo_intel_l;
-    else
-      art->art = &logo_intel;
+    if(art->new_intel_logo) {
+      art->art = choose_ascii_art_aux(&logo_intel_l_new, &logo_intel_new, term, lf);
+    }
+    else {
+      art->art = choose_ascii_art_aux(&logo_intel_l, &logo_intel, term, lf);
+    }
   }
   else if(art->vendor == CPU_VENDOR_AMD) {
-    if(term != NULL && ascii_fits_screen(term->w, logo_amd_l, lf))
-      art->art = &logo_amd_l;
-    else
-      art->art = &logo_amd;
+    art->art = choose_ascii_art_aux(&logo_amd_l, &logo_amd, term, lf);
   }
   else {
     art->art = &logo_unknown;
   }
 #elif ARCH_PPC
-  if(term != NULL && ascii_fits_screen(term->w, logo_ibm_l, lf))
-    art->art = &logo_ibm_l;
-  else
-    art->art = &logo_ibm;
+  art->art = choose_ascii_art_aux(&logo_ibm_l, &logo_ibm, term, lf);
 #elif ARCH_ARM
   if(art->vendor == SOC_VENDOR_SNAPDRAGON)
     art->art = &logo_snapd;
@@ -257,11 +351,10 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
     art->art = &logo_kirin;
   else if(art->vendor == SOC_VENDOR_BROADCOM)
     art->art = &logo_broadcom;
+  else if(art->vendor == SOC_VENDOR_APPLE)
+    art->art = &logo_apple;
   else {
-    if(term != NULL && ascii_fits_screen(term->w, logo_arm_l, lf))
-      art->art = &logo_arm_l;
-    else
-      art->art = &logo_arm;
+    art->art = choose_ascii_art_aux(&logo_arm_l, &logo_arm, term, lf);
   }
 #endif
 
@@ -275,6 +368,7 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
       strcpy(logo->color_text[1], COLOR_NONE);
       strcpy(logo->color_ascii[0], COLOR_NONE);
       strcpy(logo->color_ascii[1], COLOR_NONE);
+      strcpy(logo->color_ascii[2], COLOR_NONE);
       art->reset[0] = '\0';
       break;
     case STYLE_RETRO:
@@ -283,10 +377,11 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
       // fall through
     case STYLE_FANCY:
       if(cs != NULL) {
-        strcpy(logo->color_text[0], rgb_to_ansi(cs[2], false, true));
-        strcpy(logo->color_text[1], rgb_to_ansi(cs[3], false, true));
-        strcpy(logo->color_ascii[0], rgb_to_ansi(cs[0], true, true));
-        strcpy(logo->color_ascii[1], rgb_to_ansi(cs[1], true, true));
+        strcpy(logo->color_text[0], rgb_to_ansi(cs[3], false, true));
+        strcpy(logo->color_text[1], rgb_to_ansi(cs[4], false, true));
+        strcpy(logo->color_ascii[0], rgb_to_ansi(cs[0], logo->replace_blocks, true));
+        strcpy(logo->color_ascii[1], rgb_to_ansi(cs[1], logo->replace_blocks, true));
+        strcpy(logo->color_ascii[2], rgb_to_ansi(cs[2], logo->replace_blocks, true));
       }
       strcpy(art->reset, COLOR_RESET);
       break;
@@ -296,13 +391,13 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
   }
 }
 
-uint32_t longest_attribute_length(struct ascii* art) {
+uint32_t longest_attribute_length(struct ascii* art, const char** attribute_fields) {
   uint32_t max = 0;
   uint64_t len = 0;
 
   for(uint32_t i=0; i < art->n_attributes_set; i++) {
     if(art->attributes[i]->value != NULL) {
-      len = strlen(ATTRIBUTE_FIELDS[art->attributes[i]->type]);
+      len = strlen(attribute_fields[art->attributes[i]->type]);
       if(len > max) max = len;
     }
   }
@@ -327,16 +422,21 @@ uint32_t longest_field_length(struct ascii* art, int la) {
 }
 
 #if defined(ARCH_X86) || defined(ARCH_PPC)
-void print_ascii_generic(struct ascii* art, uint32_t la) {
+void print_ascii_generic(struct ascii* art, uint32_t la, int32_t termw, const char** attribute_fields) {
   struct ascii_logo* logo = art->art;
   int attr_to_print = 0;
   int attr_type;
   char* attr_value;
-  uint32_t space_right;
+  int32_t space_right;
   int32_t space_up = ((int)logo->height - (int)art->n_attributes_set)/2;
   int32_t space_down = (int)logo->height - (int)art->n_attributes_set - (int)space_up;
   uint32_t logo_pos = 0;
   int32_t iters = max(logo->height, art->n_attributes_set);
+
+  struct line_buffer* lbuf = emalloc(sizeof(struct line_buffer));
+  lbuf->buf = emalloc(sizeof(char) * LINE_BUFFER_SIZE);
+  lbuf->pos = 0;
+  lbuf->chars = 0;
 
   printf("\n");
   for(int32_t n=0; n < iters; n++) {
@@ -345,23 +445,24 @@ void print_ascii_generic(struct ascii* art, uint32_t la) {
       for(uint32_t i=0; i < logo->width; i++) {
         if(logo->art[logo_pos] == '$') {
           if(logo->replace_blocks) logo_pos += 3;
-          else parse_print_color(art, &logo_pos);
+          else parse_print_color(art, lbuf, &logo_pos);
         }
         if(logo->replace_blocks && logo->art[logo_pos] != ' ') {
-          if(logo->art[logo_pos] == '#') printf("%s%c%s", logo->color_ascii[0], ' ', art->reset);
-          else if(logo->art[logo_pos] == '@') printf("%s%c%s", logo->color_ascii[1], ' ', art->reset);
-          else printf("%c", logo->art[logo_pos]);
+          if(logo->art[logo_pos] == '#') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[0], ' ', art->reset);
+          else if(logo->art[logo_pos] == '@') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[1], ' ', art->reset);
+          else if(logo->art[logo_pos] == '%') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[2], ' ', art->reset);
+          else printOut(lbuf, 1, "%c", logo->art[logo_pos]);
         }
         else
-          printf("%c", logo->art[logo_pos]);
+          printOut(lbuf, 1, "%c", logo->art[logo_pos]);
 
         logo_pos++;
       }
-      printf("%s", art->reset);
+      printOut(lbuf, 0, "%s", art->reset);
     }
     else {
       // If logo should not be printed, fill with spaces
-      printf("%*c", logo->width, ' ');
+      printOut(lbuf, logo->width, "%*c", logo->width, ' ');
     }
 
     // 2. Print text
@@ -370,28 +471,40 @@ void print_ascii_generic(struct ascii* art, uint32_t la) {
       attr_value = art->attributes[attr_to_print]->value;
       attr_to_print++;
 
-      space_right = 1 + (la - strlen(ATTRIBUTE_FIELDS[attr_type]));
-      printf("%s%s%s%*s%s%s%s\n", logo->color_text[0], ATTRIBUTE_FIELDS[attr_type], art->reset, space_right, "", logo->color_text[1], attr_value, art->reset);
+      space_right = 1 + (la - strlen(attribute_fields[attr_type]));
+      printOut(lbuf, strlen(attribute_fields[attr_type]) + space_right + strlen(attr_value),
+               "%s%s%s%*s%s%s%s", logo->color_text[0], attribute_fields[attr_type], art->reset, space_right, "", logo->color_text[1], attr_value, art->reset);
     }
-    else printf("\n");
+    printOutLine(lbuf, art, termw);
+    printf("\n");
   }
   printf("\n");
+
+  free(lbuf->buf);
+  free(lbuf);
 }
 #endif
 
 #ifdef ARCH_X86
-bool print_cpufetch_x86(struct cpuInfo* cpu, STYLE s, struct color** cs, struct terminal* term) {
+bool choose_new_intel_logo(struct cpuInfo* cpu) {
+  if(show_logo_intel_new()) return true;
+  if(show_logo_intel_old()) return false;
+  return choose_new_intel_logo_uarch(cpu);
+}
+
+bool print_cpufetch_x86(struct cpuInfo* cpu, STYLE s, struct color** cs, struct terminal* term, bool fcpuname) {
   struct ascii* art = set_ascii(get_cpu_vendor(cpu), s);
   if(art == NULL)
     return false;
 
+  art->new_intel_logo = choose_new_intel_logo(cpu);
   char* uarch = get_str_uarch(cpu);
   char* manufacturing_process = get_str_process(cpu);
   char* sockets = get_str_sockets(cpu->topo);
   char* max_frequency = get_str_freq(cpu->freq);
   char* n_cores = get_str_topology(cpu, cpu->topo, false);
   char* n_cores_dual = get_str_topology(cpu, cpu->topo, true);
-  char* cpu_name = get_str_cpu_name(cpu);
+  char* cpu_name = get_str_cpu_name(cpu, fcpuname);
   char* avx = get_str_avx(cpu);
   char* fma = get_str_fma(cpu);
 
@@ -427,11 +540,19 @@ bool print_cpufetch_x86(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
   }
   setAttribute(art,ATTRIBUTE_PEAK,pp);
 
-  uint32_t longest_attribute = longest_attribute_length(art);
+  const char** attribute_fields = ATTRIBUTE_FIELDS;
+  uint32_t longest_attribute = longest_attribute_length(art, attribute_fields);
   uint32_t longest_field = longest_field_length(art, longest_attribute);
   choose_ascii_art(art, cs, term, longest_field);
 
-  print_ascii_generic(art, longest_attribute);
+  if(!ascii_fits_screen(term->w, *art->art, longest_field)) {
+    // Despite of choosing the smallest logo, the output does not fit
+    // Choose the shorter field names and recalculate the longest attr
+    attribute_fields = ATTRIBUTE_FIELDS_SHORT;
+    longest_attribute = longest_attribute_length(art, attribute_fields);
+  }
+
+  print_ascii_generic(art, longest_attribute, term->w, attribute_fields);
 
   free(manufacturing_process);
   free(max_frequency);
@@ -460,7 +581,7 @@ bool print_cpufetch_x86(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
 #endif
 
 #ifdef ARCH_PPC
-bool print_cpufetch_ppc(struct cpuInfo* cpu, STYLE s, struct color** cs, struct terminal* term) {
+bool print_cpufetch_ppc(struct cpuInfo* cpu, STYLE s, struct color** cs, struct terminal* term, bool fcpuname) {
   struct ascii* art = set_ascii(get_cpu_vendor(cpu), s);
   if(art == NULL)
     return false;
@@ -469,7 +590,7 @@ bool print_cpufetch_ppc(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
   char* manufacturing_process = get_str_process(cpu);
   char* sockets = get_str_sockets(cpu->topo);
   char* max_frequency = get_str_freq(cpu->freq);
-  char* cpu_name = get_str_cpu_name(cpu);
+  char* cpu_name = get_str_cpu_name(cpu, fcpuname);
   char* n_cores = get_str_topology(cpu->topo, false);
   char* n_cores_dual = get_str_topology(cpu->topo, true);
   char* altivec = get_str_altivec(cpu);
@@ -504,11 +625,19 @@ bool print_cpufetch_ppc(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
   }
   setAttribute(art,ATTRIBUTE_PEAK,pp);
 
-  uint32_t longest_attribute = longest_attribute_length(art);
+  const char** attribute_fields = ATTRIBUTE_FIELDS;
+  uint32_t longest_attribute = longest_attribute_length(art, attribute_fields);
   uint32_t longest_field = longest_field_length(art, longest_attribute);
   choose_ascii_art(art, cs, term, longest_field);
 
-  print_ascii_generic(art, longest_attribute);
+  if(!ascii_fits_screen(term->w, *art->art, longest_field)) {
+    // Despite of choosing the smallest logo, the output does not fit
+    // Choose the shorter field names and recalculate the longest attr
+    attribute_fields = ATTRIBUTE_FIELDS_SHORT;
+    longest_attribute = longest_attribute_length(art, attribute_fields);
+  }
+
+  print_ascii_generic(art, longest_attribute, term->w, attribute_fields);
 
   return true;
 }
@@ -536,17 +665,23 @@ uint32_t longest_field_length_arm(struct ascii* art, int la) {
   return max;
 }
 
-void print_ascii_arm(struct ascii* art, uint32_t la) {
+void print_ascii_arm(struct ascii* art, uint32_t la, int32_t termw, const char** attribute_fields) {
   struct ascii_logo* logo = art->art;
   int attr_to_print = 0;
   int attr_type;
   char* attr_value;
+  int32_t beg_space;
   int32_t limit_up;
   int32_t limit_down;
   uint32_t logo_pos = 0;
   uint32_t space_right;
   int32_t space_up = ((int)logo->height - (int)art->n_attributes_set)/2;
   int32_t space_down = (int)logo->height - (int)art->n_attributes_set - (int)space_up;
+
+  struct line_buffer* lbuf = emalloc(sizeof(struct line_buffer));
+  lbuf->buf = emalloc(sizeof(char) * LINE_BUFFER_SIZE);
+  lbuf->pos = 0;
+  lbuf->chars = 0;
 
   if(art->n_attributes_set > logo->height) {
     limit_up = 0;
@@ -559,29 +694,31 @@ void print_ascii_arm(struct ascii* art, uint32_t la) {
   bool add_space = false;
   int32_t iters = max(logo->height, art->n_attributes_set);
 
+  printf("\n");
   for(int32_t n=0; n < iters; n++) {
     // 1. Print logo
     if(n >= (int) art->additional_spaces && n < (int) logo->height + (int) art->additional_spaces) {
       for(uint32_t i=0; i < logo->width; i++) {
         if(logo->art[logo_pos] == '$') {
           if(logo->replace_blocks) logo_pos += 3;
-          else parse_print_color(art, &logo_pos);
+          else parse_print_color(art, lbuf, &logo_pos);
         }
         if(logo->replace_blocks && logo->art[logo_pos] != ' ') {
-          if(logo->art[logo_pos] == '#') printf("%s%c%s", logo->color_ascii[0], ' ', art->reset);
-          else if(logo->art[logo_pos] == '@') printf("%s%c%s", logo->color_ascii[1], ' ', art->reset);
-          else printf("%c", logo->art[logo_pos]);
+          if(logo->art[logo_pos] == '#') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[0], ' ', art->reset);
+          else if(logo->art[logo_pos] == '@') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[1], ' ', art->reset);
+          else if(logo->art[logo_pos] == '%') printOut(lbuf, 1, "%s%c%s", logo->color_ascii[2], ' ', art->reset);
+          else printOut(lbuf, 1, "%c", logo->art[logo_pos]);
         }
         else
-          printf("%c", logo->art[logo_pos]);
+          printOut(lbuf, 1, "%c", logo->art[logo_pos]);
 
         logo_pos++;
       }
-      printf("%s", art->reset);
+      printOut(lbuf, 0, "%s", art->reset);
     }
     else {
       // If logo should not be printed, fill with spaces
-      printf("%*c", logo->width, ' ');
+      printOut(lbuf, logo->width, "%*c", logo->width, ' ');
     }
 
     // 2. Print text
@@ -594,23 +731,28 @@ void print_ascii_arm(struct ascii* art, uint32_t la) {
         add_space = false;
       }
       if(attr_type == ATTRIBUTE_CPU_NUM) {
-        printf("%s%s%s\n", logo->color_text[0], attr_value, art->reset);
+        printOut(lbuf, strlen(attr_value), "%s%s%s", logo->color_text[0], attr_value, art->reset);
         add_space = true;
       }
       else {
+        beg_space = 0;
+        space_right = 2 + 1 + (la - strlen(attribute_fields[attr_type]));
         if(add_space) {
-          space_right = 1 + (la - strlen(ATTRIBUTE_FIELDS[attr_type]));
-          printf("  %s%s%s%*s%s%s%s\n", logo->color_text[0], ATTRIBUTE_FIELDS[attr_type], art->reset, space_right, "", logo->color_text[1], attr_value, art->reset);
+          beg_space = 2;
+          space_right -= 2;
         }
-        else {
-          space_right = 2 + 1 + (la - strlen(ATTRIBUTE_FIELDS[attr_type]));
-          printf("%s%s%s%*s%s%s%s\n", logo->color_text[0], ATTRIBUTE_FIELDS[attr_type], art->reset, space_right, "", logo->color_text[1], attr_value, art->reset);
-        }
+
+        printOut(lbuf, beg_space + strlen(attribute_fields[attr_type]) + space_right + strlen(attr_value),
+               "%*s%s%s%s%*s%s%s%s", beg_space, "", logo->color_text[0], attribute_fields[attr_type], art->reset, space_right, "", logo->color_text[1], attr_value, art->reset);
       }
     }
-    else printf("\n");
+    printOutLine(lbuf, art, termw);
+    printf("\n");
   }
+  printf("\n");
 
+  free(lbuf->buf);
+  free(lbuf);
 }
 
 bool print_cpufetch_arm(struct cpuInfo* cpu, STYLE s, struct color** cs, struct terminal* term) {
@@ -678,7 +820,8 @@ bool print_cpufetch_arm(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
     setAttribute(art, ATTRIBUTE_HYPERVISOR, cpu->hv->hv_name);
   }
 
-  uint32_t longest_attribute = longest_attribute_length(art);
+  const char** attribute_fields = ATTRIBUTE_FIELDS;
+  uint32_t longest_attribute = longest_attribute_length(art, attribute_fields);
   uint32_t longest_field = longest_field_length_arm(art, longest_attribute);
   choose_ascii_art(art, cs, term, longest_field);
 
@@ -687,7 +830,14 @@ bool print_cpufetch_arm(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
     art->additional_spaces = (art->n_attributes_set - logo->height) / 2;
   }
 
-  print_ascii_arm(art, longest_attribute);
+  if(!ascii_fits_screen(term->w, *art->art, longest_field)) {
+    // Despite of choosing the smallest logo, the output does not fit
+    // Choose the shorter field names and recalculate the longest attr
+    attribute_fields = ATTRIBUTE_FIELDS_SHORT;
+    longest_attribute = longest_attribute_length(art, attribute_fields);
+  }
+
+  print_ascii_arm(art, longest_attribute, term->w, attribute_fields);
 
   free(manufacturing_process);
   free(pp);
@@ -710,16 +860,20 @@ struct terminal* get_terminal_size() {
 #ifdef _WIN32
   CONSOLE_SCREEN_BUFFER_INFO csbi;
   if(GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi) == 0) {
-    printWarn("GetConsoleScreenBufferInfo failed");
-    return NULL;
+    printWarn("get_terminal_size: GetConsoleScreenBufferInfo failed");
+    term->w = MAX_TERM_SIZE;
+    term->h = MAX_TERM_SIZE;
+    return term;
   }
   term->w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
   term->h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
 #else
   struct winsize w;
   if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1) {
-    printErr("ioctl: %s", strerror(errno));
-    return NULL;
+    printWarn("get_terminal_size: ioctl: %s", strerror(errno));
+    term->w = MAX_TERM_SIZE;
+    term->h = MAX_TERM_SIZE;
+    return term;
   }
   term->h = w.ws_row;
   term->w = w.ws_col;
@@ -728,13 +882,13 @@ struct terminal* get_terminal_size() {
   return term;
 }
 
-bool print_cpufetch(struct cpuInfo* cpu, STYLE s, struct color** cs) {
+bool print_cpufetch(struct cpuInfo* cpu, STYLE s, struct color** cs, bool show_full_cpu_name) {
   struct terminal* term = get_terminal_size();
 
 #ifdef ARCH_X86
-  return print_cpufetch_x86(cpu, s, cs, term);
+  return print_cpufetch_x86(cpu, s, cs, term, show_full_cpu_name);
 #elif ARCH_PPC
-  return print_cpufetch_ppc(cpu, s, cs, term);
+  return print_cpufetch_ppc(cpu, s, cs, term, show_full_cpu_name);
 #elif ARCH_ARM
   return print_cpufetch_arm(cpu, s, cs, term);
 #endif

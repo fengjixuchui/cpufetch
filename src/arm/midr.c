@@ -4,8 +4,19 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <errno.h>
-#include <sys/auxv.h>
-#include <asm/hwcap.h>
+
+#ifdef __linux__
+  #include <sys/auxv.h>
+  #include <asm/hwcap.h>
+#elif defined __APPLE__ || __MACH__
+  #include "sysctl.h"
+  // From Linux kernel: arch/arm64/include/asm/cputype.h
+  #define MIDR_APPLE_M1_ICESTORM  0x610F0220
+  #define MIDR_APPLE_M1_FIRESTORM 0x610F0230
+  #ifndef CPUFAMILY_ARM_FIRESTORM_ICESTORM
+    #define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1B588BB3
+  #endif
+#endif
 
 #include "../common/global.h"
 #include "udev.h"
@@ -46,7 +57,7 @@ struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach, uint
   int cores_in_socket = 0;
 
   while(socket_idx + 1 > sockets_seen) {
-    if(midr_array[first_core_idx] == midr_array[currrent_core_idx] && currrent_core_idx < ncores) {
+    if(currrent_core_idx < ncores && midr_array[first_core_idx] == midr_array[currrent_core_idx]) {
       currrent_core_idx++;
       cores_in_socket++;
     }
@@ -132,6 +143,7 @@ struct features* get_features_info() {
     *ptr = false;
   }
 
+#ifdef __linux__
   errno = 0;
   long hwcaps = getauxval(AT_HWCAP);
 
@@ -161,15 +173,22 @@ struct features* get_features_info() {
     feat->SHA1 = hwcaps & HWCAP2_SHA1;
     feat->SHA2 = hwcaps & HWCAP2_SHA2;
   }
-#endif
+#endif // ifdef __aarch64__
+#elif defined __APPLE__ || __MACH__
+  // Must be M1
+  feat->AES = true;
+  feat->CRC32 = true;
+  feat->SHA1 = true;
+  feat->SHA2 = true;
+  feat->NEON = true;
+#endif  // ifdef __linux__
 
   return feat;
 }
 
-struct cpuInfo* get_cpu_info() {
-  struct cpuInfo* cpu = emalloc(sizeof(struct cpuInfo));
+#ifdef __linux__
+struct cpuInfo* get_cpu_info_linux(struct cpuInfo* cpu) {
   init_cpu_info(cpu);
-
   int ncores = get_ncores_from_cpuinfo();
   bool success = false;
   int32_t* freq_array = emalloc(sizeof(uint32_t) * ncores);
@@ -224,6 +243,73 @@ struct cpuInfo* get_cpu_info() {
   return cpu;
 }
 
+#elif defined __APPLE__ || __MACH__
+void fill_cpu_info_firestorm_icestorm(struct cpuInfo* cpu) {
+  // 1. Fill ICESTORM
+  struct cpuInfo* ice = cpu;
+
+  ice->midr = MIDR_APPLE_M1_ICESTORM;
+  ice->arch = get_uarch_from_midr(ice->midr, ice);
+  ice->cach = get_cache_info(ice);
+  ice->feat = get_features_info();
+  ice->topo = malloc(sizeof(struct topology));
+  ice->topo->cach = ice->cach;
+  ice->topo->total_cores = 4;
+  ice->freq = malloc(sizeof(struct frequency));
+  ice->freq->base = UNKNOWN_FREQ;
+  ice->freq->max = 2064;
+  ice->hv = malloc(sizeof(struct hypervisor));
+  ice->hv->present = false;
+  ice->next_cpu = malloc(sizeof(struct cpuInfo));
+
+  // 2. Fill FIRESTORM
+  struct cpuInfo* fire = ice->next_cpu;
+  fire->midr = MIDR_APPLE_M1_FIRESTORM;
+  fire->arch = get_uarch_from_midr(fire->midr, fire);
+  fire->cach = get_cache_info(fire);
+  fire->feat = get_features_info();
+  fire->topo = malloc(sizeof(struct topology));
+  fire->topo->cach = fire->cach;
+  fire->topo->total_cores = 4;
+  fire->freq = malloc(sizeof(struct frequency));
+  fire->freq->base = UNKNOWN_FREQ;
+  fire->freq->max = 3200;
+  fire->hv = malloc(sizeof(struct hypervisor));
+  fire->hv->present = false;
+  fire->next_cpu = NULL;
+}
+
+struct cpuInfo* get_cpu_info_mach(struct cpuInfo* cpu) {
+  uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
+
+  // Manually fill the cpuInfo assuming that the CPU
+  // is a ARM_FIRESTORM_ICESTORM (Apple M1)
+  if(cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM) {
+    cpu->num_cpus = 2;
+    cpu->soc = get_soc();
+    fill_cpu_info_firestorm_icestorm(cpu);
+    cpu->peak_performance = get_peak_performance(cpu);
+  }
+  else {
+    printBug("Found invalid cpu_family: 0x%.8X", cpu_family);
+    return NULL;
+  }
+
+  return cpu;
+}
+#endif
+
+struct cpuInfo* get_cpu_info() {
+  struct cpuInfo* cpu = malloc(sizeof(struct cpuInfo));
+  init_cpu_info(cpu);
+
+  #ifdef __linux__
+    return get_cpu_info_linux(cpu);
+  #elif defined __APPLE__ || __MACH__
+    return get_cpu_info_mach(cpu);
+  #endif
+}
+
 char* get_str_topology(struct cpuInfo* cpu, struct topology* topo, bool dual_socket) {
   uint32_t size = 3+7+1;
   char*  string = emalloc(sizeof(char)*size);
@@ -234,8 +320,9 @@ char* get_str_topology(struct cpuInfo* cpu, struct topology* topo, bool dual_soc
 
 char* get_str_features(struct cpuInfo* cpu) {
   struct features* feat = cpu->feat;
-  char* string = emalloc(sizeof(char) * 25);
+  uint32_t max_len = strlen("NEON,SHA1,SHA2,AES,CRC32,") + 1;
   uint32_t len = 0;
+  char* string = ecalloc(max_len, sizeof(char));
 
   if(feat->NEON) {
     strcat(string, "NEON,");

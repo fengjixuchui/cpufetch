@@ -116,6 +116,50 @@ char* get_str_cpu_name_internal() {
   return name;
 }
 
+bool abbreviate_intel_cpu_name(char** name) {
+  char* old_name = *name;
+  char* new_name = ecalloc(strlen(old_name) + 1, sizeof(char));
+
+  char* old_name_ptr = old_name;
+  char* new_name_ptr = new_name;
+  char* aux_ptr = NULL;
+
+  // 1. Remove "(R)"
+  old_name_ptr = strstr(old_name_ptr, "Intel(R)");
+  if(old_name_ptr == NULL) return false;
+  strcpy(new_name_ptr, "Intel");
+  new_name_ptr += strlen("Intel");
+  old_name_ptr += strlen("Intel(R)");
+
+  // 2. Remove "(R)" or "(TM)"
+  aux_ptr = strstr(old_name_ptr, "(");
+  if(aux_ptr == NULL) return false;
+  strncpy(new_name_ptr, old_name_ptr, aux_ptr-old_name_ptr);
+
+  new_name_ptr += aux_ptr-old_name_ptr;
+  strcpy(new_name_ptr, " ");
+  new_name_ptr++;
+  old_name_ptr = strstr(aux_ptr, ")");
+  if(old_name_ptr == NULL) return false;
+  old_name_ptr++;
+  while(*old_name_ptr == ' ') old_name_ptr++;
+
+  // 3. Copy the CPU name
+  aux_ptr = strstr(old_name_ptr, "@");
+  if(aux_ptr == NULL) return false;
+  strncpy(new_name_ptr, old_name_ptr, (aux_ptr-1)-old_name_ptr);
+
+  // 4. Remove dummy strings in Intel CPU names
+  strremove(new_name, " CPU");
+  strremove(new_name, " Dual");
+  strremove(new_name, " 0");
+
+  free(old_name);
+  *name = new_name;
+
+  return true;
+}
+
 struct uarch* get_cpu_uarch(struct cpuInfo* cpu) {
   uint32_t eax = 0x00000001;
   uint32_t ebx = 0;
@@ -702,6 +746,15 @@ struct frequency* get_frequency_info(struct cpuInfo* cpu) {
 }
 
 // STRING FUNCTIONS
+char* get_str_cpu_name_abbreviated(struct cpuInfo* cpu) {
+  if(cpu->cpu_vendor == CPU_VENDOR_INTEL) {
+    if(!abbreviate_intel_cpu_name(&cpu->cpu_name)) {
+      printWarn("Failed to abbreviate CPU name");
+    }
+  }
+  return cpu->cpu_name;
+}
+
 char* get_str_topology(struct cpuInfo* cpu, struct topology* topo, bool dual_socket) {
   int topo_sockets = dual_socket ? topo->sockets : 1;
   char* string;

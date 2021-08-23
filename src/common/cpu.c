@@ -16,6 +16,8 @@
   #include "../arm/uarch.h"
 #endif
 
+#define UNUSED(x) (void)(x)
+
 #define STRING_YES        "Yes"
 #define STRING_NO         "No"
 #define STRING_NONE       "None"
@@ -33,7 +35,14 @@ int64_t get_freq(struct frequency* freq) {
 }
 
 #if defined(ARCH_X86) || defined(ARCH_PPC)
-char* get_str_cpu_name(struct cpuInfo* cpu) {
+char* get_str_cpu_name(struct cpuInfo* cpu, bool fcpuname) {
+  #ifdef ARCH_X86
+  if(!fcpuname) {
+    return get_str_cpu_name_abbreviated(cpu);
+  }
+  #elif ARCH_PPC
+  UNUSED(fcpuname);
+  #endif
   return cpu->cpu_name;
 }
 

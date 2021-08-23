@@ -10,6 +10,7 @@ enum {
   CPU_VENDOR_AMD,
 // ARCH_ARM
   CPU_VENDOR_ARM,
+  CPU_VENDOR_APPLE,
   CPU_VENDOR_BROADCOM,
   CPU_VENDOR_CAVIUM,
   CPU_VENDOR_NVIDIA,
@@ -147,7 +148,7 @@ struct cpuInfo {
 };
 
 #if defined(ARCH_X86) || defined(ARCH_PPC)
-char* get_str_cpu_name(struct cpuInfo* cpu);
+char* get_str_cpu_name(struct cpuInfo* cpu, bool fcpuname);
 char* get_str_sockets(struct topology* topo);
 uint32_t get_nsockets(struct topology* topo);
 #endif

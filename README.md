@@ -33,6 +33,7 @@
 - [5. Implementation](#5-implementation)
 - [6. Bugs or improvements](#6-bugs-or-improvements)
 - [7. Acknowledgements](#7-acknowledgements)
+- [8. cpufetch for GPUs (gpufetch)](#8-cpufetch-for-gpus-gpufetch)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -43,13 +44,13 @@ cpufetch supports the following architectures:
 - ARM
 - PowerPC
 
-| OS        | x86_64 / x86              | ARM                | PowerPC            | Notes             |
-|:---------:|:------------------------:|:-------------------:|:------------------:|:----------:|
-| GNU/Linux | :heavy_check_mark:        | :heavy_check_mark: | :heavy_check_mark: | Best support      |
-| Windows   | :heavy_check_mark:        | :x:                | :x:                | Some information may be missing. <br> Colors will be used if supported |
-| Android   | :heavy_exclamation_mark:  | :heavy_check_mark: | :x:                | Some information may be missing. <br> Not tested under x86_64 |
-| macOS     | :heavy_check_mark:        | :x:                | :x:                | Some information may be missing. <br> Apple M1 support may be added <br> in the future (see [#47](https://github.com/Dr-Noob/cpufetch/issues/47))|
-| FreeBSD   | :heavy_check_mark:        | :x:                | :x:                | Some information may be missing.  |
+| OS        | x86_64 / x86       | ARM                | PowerPC            | Notes             |
+|:---------:|:------------------:|:------------------:|:------------------:|:-----------------:|
+| GNU/Linux | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | Best support      |
+| Windows   | :heavy_check_mark: | :x:                | :x:                | Some information may be missing. <br> Colors will be used if supported |
+| Android   | :heavy_check_mark: | :heavy_check_mark: | :x:                | Some information may be missing |
+| macOS     | :heavy_check_mark: | :heavy_check_mark: | :x:                | Only the Apple M1 is supported in ARM |
+| FreeBSD   | :heavy_check_mark: | :x:                | :x:                | Some information may be missing. |
 
 # 2. Installation
 ## 2.1 Installing from a package
@@ -114,6 +115,11 @@ See [cpufetch programming documentation](https://github.com/Dr-Noob/cpufetch/doc
 See [cpufetch contributing guidelines](https://github.com/Dr-Noob/cpufetch/CONTRIBUTING.md)
 
 # 7. Acknowledgements
-Special thanks to [Gonzalocl](https://github.com/Gonzalocl) and [OdnetninI](https://github.com/OdnetninI). They tested `cpufetch` in its beginnings in many different CPUs they have access to, which made it easier to debug and check the correctness of `cpufetch`.
+Thanks to the fellow contributors and interested people in the project. Special thanks to:
+- [Gonzalocl](https://github.com/Gonzalocl), [OdnetninI](https://github.com/OdnetninI): Tested cpufetch in the earlier versions of the project in many different CPUs.
+- [Kyngo](https://github.com/Kyngo): Tested cpufetch in the Apple M1 CPU.
+- [avollmerhaus](https://github.com/avollmerhaus): Gave me ssh acess to a PowerPC machine, allowing me to develop the PowerPC port.
+- [bbonev](https://github.com/bbonev), [stephan-cr](https://github.com/stephan-cr): Reviewed the source code.
 
-Special thanks too to the fellow contributors and interested people in the project!
+# 8. cpufetch for GPUs (gpufetch)
+See [gpufetch](https://github.com/Dr-Noob/gpufetch) project!
