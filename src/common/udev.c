@@ -2,6 +2,48 @@
 #include "global.h"
 #include "cpu.h"
 
+// https://www.kernel.org/doc/html/latest/core-api/cpu_hotplug.html
+int get_ncores_from_cpuinfo() {
+  // Examples:
+  // 0-271
+  // 0-7
+  // 0
+
+  int filelen;
+  char* buf;
+  if((buf = read_file(_PATH_CPUS_PRESENT, &filelen)) == NULL) {
+    printWarn("read_file: %s: %s\n", _PATH_CPUS_PRESENT, strerror(errno));
+    return -1;
+  }
+
+  int ncores;
+  char* tmp1;
+  if((tmp1 = strstr(buf, "-")) == NULL) {
+    // file contains no - character, we assume that it contains 0,
+    // which means that the CPU contains only one core
+    return 1;
+  }
+  else {
+    tmp1++;
+  }
+  char* tmp2 = strstr(buf, "\n");
+  char ncores_str[filelen];
+  memset(ncores_str, 0, sizeof(char) * filelen);
+  memcpy(ncores_str, tmp1, tmp2-tmp1);
+
+  char* end;
+  errno = 0;
+  ncores = strtol(ncores_str, &end, 10) + 1;
+  if(errno != 0) {
+    printWarn("strtol: %s:\n", strerror(errno));
+    return -1;
+  }
+
+  free(buf);
+
+  return ncores;
+}
+
 char* read_file(char* path, int* len) {
   int fd = open(path, O_RDONLY);
 
@@ -33,7 +75,7 @@ long get_freq_from_file(char* path) {
   char* buf;
   if((buf = read_file(path, &filelen)) == NULL) {
     printWarn("Could not open '%s'", path);
-    return UNKNOWN_FREQ;
+    return UNKNOWN_DATA;
   }
 
   char* end;
@@ -42,7 +84,7 @@ long get_freq_from_file(char* path) {
   if(errno != 0) {
     printBug("strtol: %s", strerror(errno));
     free(buf);
-    return UNKNOWN_FREQ;
+    return UNKNOWN_DATA;
   }
 
   // We will be getting the frequency in KHz
@@ -50,7 +92,7 @@ long get_freq_from_file(char* path) {
   // greater than 10 GHz or less than 100 MHz
   if(ret > 10000 * 1000 || ret <  100 * 1000) {
     printBug("Invalid data was read from file '%s': %ld\n", path, ret);
-    return UNKNOWN_FREQ;
+    return UNKNOWN_DATA;
   }
 
   free(buf);

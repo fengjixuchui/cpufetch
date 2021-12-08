@@ -139,7 +139,7 @@ int64_t get_peak_performance(struct cpuInfo* cpu, struct topology* topo, int64_t
    */
 
   //First check we have consistent data
-  if(freq == UNKNOWN_FREQ) {
+  if(freq == UNKNOWN_DATA) {
     return -1;
   }
 
@@ -181,9 +181,6 @@ struct cpuInfo* get_cpu_info() {
   feat->altivec = has_altivec(cpu->arch);
   cpu->peak_performance = get_peak_performance(cpu, cpu->topo, get_freq(cpu->freq));
 
-  if(cpu->cach == NULL || cpu->topo == NULL) {
-    return NULL;
-  }
   return cpu;
 }
 

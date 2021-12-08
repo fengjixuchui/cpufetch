@@ -12,10 +12,17 @@ COMMON_HDR = $(SRC_COMMON)ascii.h $(SRC_COMMON)cpu.h $(SRC_COMMON)udev.h $(SRC_C
 
 ifneq ($(OS),Windows_NT)
 	arch := $(shell uname -m)
-	ifeq ($(arch), $(filter $(arch), x86_64 amd64 i686))
+	ifeq ($(arch), $(filter $(arch), x86_64 amd64 i386 i486 i586 i686))
 		SRC_DIR=src/x86/
 		SOURCE += $(COMMON_SRC) $(SRC_DIR)cpuid.c $(SRC_DIR)apic.c $(SRC_DIR)cpuid_asm.c $(SRC_DIR)uarch.c
-		HEADERS += $(COMMON_HDR) $(SRC_DIR)cpuid.h $(SRC_DIR)apic.h $(SRC_DIR)cpuid_asm.h $(SRC_DIR)uarch.h
+		HEADERS += $(COMMON_HDR) $(SRC_DIR)cpuid.h $(SRC_DIR)apic.h $(SRC_DIR)cpuid_asm.h $(SRC_DIR)uarch.h $(SRC_DIR)freq/freq.h
+
+                os := $(shell uname -s)
+                ifeq ($(os), Linux)
+			SOURCE += $(SRC_DIR)freq/freq.c freq_nov.o freq_avx.o freq_avx512.o
+			HEADERS += $(SRC_DIR)freq/freq.h
+			CFLAGS += -pthread
+                endif
 		CFLAGS += -DARCH_X86 -std=c99 -fstack-protector-all
 	else ifeq ($(arch), $(filter $(arch), ppc64le ppc64 ppcle ppc))
 		SRC_DIR=src/ppc/
@@ -51,17 +58,26 @@ else
 	OUTPUT=cpufetch.exe
 endif
 
-all: CFLAGS += -O3
+all: CFLAGS += -O2
 all: $(OUTPUT)
 
 debug: CFLAGS += -g -O0
 debug: $(OUTPUT)
 
-static: CFLAGS += -static -O3
+static: CFLAGS += -static -O2
 static: $(OUTPUT)
 
-strict: CFLAGS += -O3 -Werror -fsanitize=undefined -D_FORTIFY_SOURCE=2
+strict: CFLAGS += -O2 -Werror -fsanitize=undefined -D_FORTIFY_SOURCE=2
 strict: $(OUTPUT)
+
+freq_nov.o: Makefile $(SRC_DIR)freq/freq_nov.c $(SRC_DIR)freq/freq_nov.h
+	$(CC) $(CFLAGS) $(SANITY_FLAGS) -c -pthread $(SRC_DIR)freq/freq_nov.c -o $@
+
+freq_avx.o: Makefile $(SRC_DIR)freq/freq_avx.c $(SRC_DIR)freq/freq_avx.h
+	$(CC) $(CFLAGS) $(SANITY_FLAGS) -c -mavx -pthread $(SRC_DIR)freq/freq_avx.c -o $@
+
+freq_avx512.o: Makefile $(SRC_DIR)freq/freq_avx512.c $(SRC_DIR)freq/freq_avx512.h
+	$(CC) $(CFLAGS) $(SANITY_FLAGS) -c -mavx512f -pthread $(SRC_DIR)freq/freq_avx512.c -o $@
 
 $(OUTPUT): Makefile $(SOURCE) $(HEADERS)
 	$(CC) $(CFLAGS) $(SANITY_FLAGS) $(SOURCE) -o $(OUTPUT)
@@ -70,7 +86,7 @@ run: $(OUTPUT)
 	./$(OUTPUT)
 
 clean:
-	@rm -f $(OUTPUT)
+	@rm -f $(OUTPUT) *.o
 
 install: $(OUTPUT)
 	install -Dm755 "cpufetch"   "$(DESTDIR)$(PREFIX)/bin/cpufetch"

@@ -15,8 +15,10 @@
 #include "cpuid.h"
 #include "cpuid_asm.h"
 #include "../common/global.h"
+#include "../common/args.h"
 #include "apic.h"
 #include "uarch.h"
+#include "freq/freq.h"
 
 #define CPU_VENDOR_INTEL_STRING "GenuineIntel"
 #define CPU_VENDOR_AMD_STRING   "AuthenticAMD"
@@ -174,10 +176,10 @@ struct uarch* get_cpu_uarch(struct cpuInfo* cpu) {
   uint32_t family = (eax >> 8) & 0xF;
   uint32_t efamily = (eax >> 20) & 0xFF;
 
-  return get_uarch_from_cpuid(cpu, efamily, family, emodel, model, (int)stepping);
+  return get_uarch_from_cpuid(cpu, eax, efamily, family, emodel, model, (int)stepping);
 }
 
-int64_t get_peak_performance(struct cpuInfo* cpu, struct topology* topo, int64_t freq) {
+int64_t get_peak_performance(struct cpuInfo* cpu, struct topology* topo, int64_t max_freq, bool accurate_pp) {
   /*
    * PP = PeakPerformance
    * SP = SinglePrecision
@@ -190,8 +192,20 @@ int64_t get_peak_performance(struct cpuInfo* cpu, struct topology* topo, int64_t
    * 16(If AVX512), 8(If AVX), 4(If SSE) *
    */
 
+  int64_t freq;
+#ifdef __linux__
+  if(accurate_pp)
+    freq = measure_frequency(cpu);
+  else
+    freq = max_freq;
+#else
+  // Silence compiler warning
+  (void)(accurate_pp);
+  freq = max_freq;
+#endif
+
   //First, check we have consistent data
-  if(freq == UNKNOWN_FREQ) {
+  if(freq == UNKNOWN_DATA || topo->logical_cores == UNKNOWN_DATA) {
     return -1;
   }
 
@@ -264,6 +278,9 @@ struct cpuInfo* get_cpu_info() {
   struct cpuInfo* cpu = emalloc(sizeof(struct cpuInfo));
   struct features* feat = emalloc(sizeof(struct features));
   cpu->feat = feat;
+  cpu->peak_performance = -1;
+  cpu->topo = NULL;
+  cpu->cach = NULL;
 
   bool *ptr = &(feat->AES);
   for(uint32_t i = 0; i < sizeof(struct features)/sizeof(bool); i++, ptr++) {
@@ -372,15 +389,20 @@ struct cpuInfo* get_cpu_info() {
     cpu->topology_extensions = (ecx >> 22) & 1;
   }
 
+  // If any field of the struct is NULL,
+  // return inmideately, as further functions
+  // require valid fields (cach, topo, etc)
   cpu->arch = get_cpu_uarch(cpu);
   cpu->freq = get_frequency_info(cpu);
-  cpu->cach = get_cache_info(cpu);
-  cpu->topo = get_topology_info(cpu, cpu->cach);
-  cpu->peak_performance = get_peak_performance(cpu, cpu->topo, get_freq(cpu->freq));
 
-  if(cpu->cach == NULL || cpu->topo == NULL) {
-    return NULL;
-  }
+  cpu->cach = get_cache_info(cpu);
+  if(cpu->cach == NULL) return cpu;
+
+  cpu->topo = get_topology_info(cpu, cpu->cach);
+  if(cpu->topo == NULL) return cpu;
+
+  cpu->peak_performance = get_peak_performance(cpu, cpu->topo, get_freq(cpu->freq), accurate_pp());
+
   return cpu;
 }
 
@@ -458,6 +480,16 @@ bool get_cache_topology_amd(struct cpuInfo* cpu, struct topology* topo) {
   return true;
 }
 
+void get_topology_from_udev(struct topology* topo) {
+  // TODO: To be improved in the future
+  topo->total_cores = get_ncores_from_cpuinfo();
+  topo->logical_cores = topo->total_cores;
+  topo->physical_cores = topo->total_cores;
+  topo->smt_available = 1;
+  topo->smt_supported = 1;
+  topo->sockets = 1;
+}
+
 // Main reference: https://software.intel.com/content/www/us/en/develop/articles/intel-64-architecture-processor-topology-enumeration.html
 // Very interesting resource: https://wiki.osdev.org/Detecting_CPU_Topology_(80x86)
 struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach) {
@@ -487,7 +519,19 @@ struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach) {
   switch(cpu->cpu_vendor) {
     case CPU_VENDOR_INTEL:
       if (cpu->maxLevels >= 0x00000004) {
-        get_topology_from_apic(cpu, topo);
+        bool toporet = get_topology_from_apic(cpu, topo);
+        if(!toporet) {
+          #ifdef __linux__
+            printWarn("Failed to retrieve topology from APIC, using udev...\n");
+            get_topology_from_udev(topo);
+          #else
+            printErr("Failed to retrieve topology from APIC, assumming default values...\n");
+            topo->logical_cores = UNKNOWN_DATA;
+            topo->physical_cores = UNKNOWN_DATA;
+            topo->smt_available = 1;
+            topo->smt_supported = 1;
+          #endif
+        }
       }
       else {
         printWarn("Can't read topology information from cpuid (needed level is 0x%.8X, max is 0x%.8X)", 0x00000001, cpu->maxLevels);
@@ -698,16 +742,16 @@ struct frequency* get_frequency_info(struct cpuInfo* cpu) {
   if(cpu->maxLevels < 0x00000016) {
     #if defined (_WIN32) || defined (__APPLE__)
       printWarn("Can't read frequency information from cpuid (needed level is 0x%.8X, max is 0x%.8X)", 0x00000016, cpu->maxLevels);
-      freq->base = UNKNOWN_FREQ;
-      freq->max = UNKNOWN_FREQ;
+      freq->base = UNKNOWN_DATA;
+      freq->max = UNKNOWN_DATA;
     #else
       printWarn("Can't read frequency information from cpuid (needed level is 0x%.8X, max is 0x%.8X). Using udev", 0x00000016, cpu->maxLevels);
-      freq->base = UNKNOWN_FREQ;
+      freq->base = UNKNOWN_DATA;
       freq->max = get_max_freq_from_file(0);
 
       if(freq->max == 0) {
         printWarn("Read max CPU frequency from udev and got 0 MHz");
-        freq->max = UNKNOWN_FREQ;
+        freq->max = UNKNOWN_DATA;
       }
     #endif
   }
@@ -724,7 +768,7 @@ struct frequency* get_frequency_info(struct cpuInfo* cpu) {
 
     if(freq->base == 0) {
       printWarn("Read base CPU frequency from CPUID and got 0 MHz");
-      freq->base = UNKNOWN_FREQ;
+      freq->base = UNKNOWN_DATA;
     }
     if(freq->max == 0) {
       printWarn("Read max CPU frequency from CPUID and got 0 MHz");
@@ -734,10 +778,10 @@ struct frequency* get_frequency_info(struct cpuInfo* cpu) {
 
         if(freq->max == 0) {
           printWarn("Read max CPU frequency from udev and got 0 MHz");
-          freq->max = UNKNOWN_FREQ;
+          freq->max = UNKNOWN_DATA;
         }
       #else
-        freq->max = UNKNOWN_FREQ;
+        freq->max = UNKNOWN_DATA;
       #endif
     }
   }
@@ -759,7 +803,11 @@ char* get_str_topology(struct cpuInfo* cpu, struct topology* topo, bool dual_soc
   int topo_sockets = dual_socket ? topo->sockets : 1;
   char* string;
 
-  if(topo->smt_supported > 1) {
+  if(topo->logical_cores == UNKNOWN_DATA) {
+    string = emalloc(sizeof(char) * (strlen(STRING_UNKNOWN) + 1));
+    strcpy(string, STRING_UNKNOWN);
+  }
+  else if(topo->smt_supported > 1) {
     // 4 for digits, 21 for ' cores (SMT disabled)' which is the longest possible output
     uint32_t max_size = 4+21+1;
     string = emalloc(sizeof(char) * max_size);

@@ -17,7 +17,8 @@ static char* soc_trademark_string[] = {
   [SOC_VENDOR_EXYNOS]     = "Exynos ",
   [SOC_VENDOR_KIRIN]      = "Kirin ",
   [SOC_VENDOR_BROADCOM]   = "Broadcom BCM",
-  [SOC_VENDOR_APPLE]      = "Apple "
+  [SOC_VENDOR_APPLE]      = "Apple ",
+  [SOC_VENDOR_ALLWINNER]  = "Allwinner "
 };
 
 static char* soc_rpi_string[] = {
@@ -38,10 +39,10 @@ void fill_soc(struct system_on_chip* soc, char* soc_name, SOC soc_model, int32_t
 }
 
 bool match_soc(struct system_on_chip* soc, char* raw_name, char* expected_name, char* soc_name, SOC soc_model, int32_t process) {
-  if(strlen(raw_name) > strlen(expected_name))
-    return false;
+  int len1 = strlen(raw_name);
+  int len2 = strlen(expected_name);
+  int len = min(len1, len2);
 
-  int len = strlen(raw_name);
   if(strncmp(raw_name, expected_name, len) != 0) {
     return false;
   }
@@ -197,12 +198,15 @@ bool match_exynos(char* soc_name, struct system_on_chip* soc) {
 
 bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
   char* tmp;
+  char* soc_name_upper = toupperstr(soc_name);
 
-  if((tmp = strstr(soc_name, "MT")) == NULL)
+  if((tmp = strstr(soc_name_upper, "MT")) == NULL)
     return false;
 
   SOC_START
   // Dimensity //
+  SOC_EQ(tmp, "MT6893",   "Dimensity 1200",  SOC_MTK_MT6893,   soc, 6)
+  SOC_EQ(tmp, "MT6891",   "Dimensity 1100",  SOC_MTK_MT6891,   soc, 6)
   SOC_EQ(tmp, "MT6889",   "Dimensity 1000",  SOC_MTK_MT6889,   soc, 7)
   SOC_EQ(tmp, "MT6885Z",  "Dimensity 1000L", SOC_MTK_MT6885Z,  soc, 7)
   //SOC_EQ(tmp, "?",      "Dimensity 700",   SOC_MTK_,         soc, 7)
@@ -447,6 +451,50 @@ bool match_qualcomm(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "SM8250",         "865",       SOC_SNAPD_SM8250,         soc,  7)
   SOC_EQ(tmp, "SM8250-AB",      "865+",      SOC_SNAPD_SM8250_AB,      soc,  7)
   SOC_EQ(tmp, "SM8350",         "888",       SOC_SNAPD_SM8350,         soc,  5)
+  SOC_EQ(tmp, "SM8350-AC",      "888+",      SOC_SNAPD_SM8350,         soc,  5)
+  SOC_END
+}
+
+// https://linux-sunxi.org/Allwinner_SoC_Family
+bool match_allwinner(char* soc_name, struct system_on_chip* soc) {
+  char* tmp;
+
+  if((tmp = strstr(soc_name, "sun")) == NULL)
+    return false;
+
+  SOC_START
+  // A series 32 bits
+  SOC_EQ(tmp, "sun4i", "A10",   SOC_ALLWINNER_A10,  soc, 55)
+  SOC_EQ(tmp, "sun5i", "A13",   SOC_ALLWINNER_A13,  soc, 55)
+  SOC_EQ(tmp, "sun5i", "A10s",  SOC_ALLWINNER_A10S, soc, 55)
+  SOC_EQ(tmp, "sun7i", "A20",   SOC_ALLWINNER_A20,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "A23",   SOC_ALLWINNER_A23,  soc, 40)
+  SOC_EQ(tmp, "sun6i", "A31",   SOC_ALLWINNER_A31,  soc, 40)
+  SOC_EQ(tmp, "sun6i", "A31s",  SOC_ALLWINNER_A31S, soc, 40)
+  SOC_EQ(tmp, "sun8i", "A33",   SOC_ALLWINNER_A33,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "A40",   SOC_ALLWINNER_A40,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "A50",   SOC_ALLWINNER_A50,  soc, 28)
+  SOC_EQ(tmp, "sun9i", "A80",   SOC_ALLWINNER_A80,  soc, 28)
+  SOC_EQ(tmp, "sun8i", "A83T",  SOC_ALLWINNER_A83T, soc, 28)
+
+  // H series 32 bits
+  SOC_EQ(tmp, "sun8i", "H2+",   SOC_ALLWINNER_HZP,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "H3",    SOC_ALLWINNER_H3,   soc, 40)
+  SOC_EQ(tmp, "sun8i", "H8",    SOC_ALLWINNER_H8,   soc, 28)
+
+  // H series 64 bits
+  SOC_EQ(tmp, "sun50i", "H5",   SOC_ALLWINNER_H5,   soc, 40)
+  SOC_EQ(tmp, "sun50i", "H6",   SOC_ALLWINNER_H6,   soc, 28)
+  SOC_EQ(tmp, "sun50i", "H616", SOC_ALLWINNER_H616, soc, 28)
+
+  // R series 32 bits
+  SOC_EQ(tmp, "sun5i", "R8",    SOC_ALLWINNER_R8,   soc, 55)
+  SOC_EQ(tmp, "sun8i", "R16",   SOC_ALLWINNER_R16,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "R40",   SOC_ALLWINNER_R40,  soc, 40)
+  SOC_EQ(tmp, "sun8i", "R58",   SOC_ALLWINNER_R58,  soc, 28)
+
+  // R series  64 bits
+  SOC_EQ(tmp, "sun50i", "R329", SOC_ALLWINNER_R328, soc, 28)
   SOC_END
 }
 
@@ -486,8 +534,10 @@ struct system_on_chip* parse_soc_from_string(struct system_on_chip* soc) {
   if(match_hisilicon(raw_name, soc))
     return soc;
 
-  match_broadcom(raw_name, soc);
+  if(match_allwinner(raw_name, soc))
+    return soc;
 
+  match_broadcom(raw_name, soc);
   return soc;
 }
 
@@ -498,26 +548,37 @@ static inline int android_property_get(const char* key, char* value) {
   return __system_property_get(key, value);
 }
 
+void try_parse_soc_from_string(struct system_on_chip* soc, int soc_len, char* soc_str) {
+  soc->raw_name = emalloc(sizeof(char) * (soc_len + 1));
+  strncpy(soc->raw_name, soc_str, soc_len + 1);
+  soc->raw_name[soc_len] = '\0';
+  soc->soc_vendor = SOC_VENDOR_UNKNOWN;
+  parse_soc_from_string(soc);
+}
+
 struct system_on_chip* guess_soc_from_android(struct system_on_chip* soc) {
   char tmp[100];
   int property_len = 0;
 
   property_len = android_property_get("ro.mediatek.platform", (char *) &tmp);
   if(property_len > 0) {
-    soc->raw_name = emalloc(sizeof(char) * (property_len + 1));
-    strncpy(soc->raw_name, tmp, property_len + 1);
-    soc->raw_name[property_len] = '\0';
-    soc->soc_vendor = SOC_VENDOR_UNKNOWN;
-    return parse_soc_from_string(soc);
+    try_parse_soc_from_string(soc, property_len, tmp);
+    if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) printWarn("SoC detection failed using Android property ro.mediatek.platform: %s", tmp);
+    else return soc;
   }
 
   property_len = android_property_get("ro.product.board", (char *) &tmp);
   if(property_len > 0) {
-    soc->raw_name = emalloc(sizeof(char) * (property_len + 1));
-    strncpy(soc->raw_name, tmp, property_len + 1);
-    soc->raw_name[property_len] = '\0';
-    soc->soc_vendor = SOC_VENDOR_UNKNOWN;
-    return parse_soc_from_string(soc);
+    try_parse_soc_from_string(soc, property_len, tmp);
+    if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) printWarn("SoC detection failed using Android property ro.product.board: %s", tmp);
+    else return soc;
+  }
+
+  property_len = android_property_get("ro.board.platform", (char *) &tmp);
+  if(property_len > 0) {
+    try_parse_soc_from_string(soc, property_len, tmp);
+    if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) printWarn("SoC detection failed using Android property ro.board.platform: %s", tmp);
+    else return soc;
   }
 
   return soc;

@@ -24,6 +24,10 @@
 #include "uarch.h"
 #include "soc.h"
 
+bool cores_are_equal(int c1pos, int c2pos, uint32_t* midr_array, int32_t* freq_array) {
+  return midr_array[c1pos] == midr_array[c2pos] && freq_array[c1pos] == freq_array[c2pos];
+}
+
 struct cache* get_cache_info(struct cpuInfo* cpu) {
   struct cache* cach = emalloc(sizeof(struct cache));
   init_cache_struct(cach);
@@ -41,13 +45,13 @@ struct cache* get_cache_info(struct cpuInfo* cpu) {
 struct frequency* get_frequency_info(uint32_t core) {
   struct frequency* freq = emalloc(sizeof(struct frequency));
 
-  freq->base = UNKNOWN_FREQ;
+  freq->base = UNKNOWN_DATA;
   freq->max = get_max_freq_from_file(core);
 
   return freq;
 }
 
-struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach, uint32_t* midr_array, int socket_idx, int ncores) {
+struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach, uint32_t* midr_array, int32_t* freq_array, int socket_idx, int ncores) {
   struct topology* topo = emalloc(sizeof(struct topology));
   init_topology_struct(topo, cach);
 
@@ -57,7 +61,7 @@ struct topology* get_topology_info(struct cpuInfo* cpu, struct cache* cach, uint
   int cores_in_socket = 0;
 
   while(socket_idx + 1 > sockets_seen) {
-    if(currrent_core_idx < ncores && midr_array[first_core_idx] == midr_array[currrent_core_idx]) {
+    if(currrent_core_idx < ncores && cores_are_equal(first_core_idx, currrent_core_idx, midr_array, freq_array)) {
       currrent_core_idx++;
       cores_in_socket++;
     }
@@ -77,7 +81,7 @@ int64_t get_peak_performance(struct cpuInfo* cpu) {
 
   //First check we have consistent data
   for(int i=0; i < cpu->num_cpus; ptr = ptr->next_cpu, i++) {
-    if(get_freq(ptr->freq) == UNKNOWN_FREQ) {
+    if(get_freq(ptr->freq) == UNKNOWN_DATA) {
       return -1;
     }
   }
@@ -91,10 +95,6 @@ int64_t get_peak_performance(struct cpuInfo* cpu) {
   if(cpu->feat->NEON) flops = flops * 4;
 
   return flops;
-}
-
-bool cores_are_equal(int c1pos, int c2pos, uint32_t* midr_array, int32_t* freq_array) {
-  return midr_array[c1pos] == midr_array[c2pos] && freq_array[c1pos] == freq_array[c2pos];
 }
 
 uint32_t fill_ids_from_midr(uint32_t* midr_array, int32_t* freq_array, uint32_t* ids_array, int len) {
@@ -204,7 +204,7 @@ struct cpuInfo* get_cpu_info_linux(struct cpuInfo* cpu) {
     }
 
     freq_array[i] = get_max_freq_from_file(i);
-    if(freq_array[i] == UNKNOWN_FREQ) {
+    if(freq_array[i] == UNKNOWN_DATA) {
       printWarn("Unable to fetch max frequency for core %d. This is probably because the core is offline", i);
       freq_array[i] = freq_array[0];
     }
@@ -231,7 +231,7 @@ struct cpuInfo* get_cpu_info_linux(struct cpuInfo* cpu) {
     ptr->feat = get_features_info();
     ptr->freq = get_frequency_info(midr_idx);
     ptr->cach = get_cache_info(ptr);
-    ptr->topo = get_topology_info(ptr, ptr->cach, midr_array, i, ncores);
+    ptr->topo = get_topology_info(ptr, ptr->cach, midr_array, freq_array, i, ncores);
   }
 
   cpu->num_cpus = sockets;
@@ -256,7 +256,7 @@ void fill_cpu_info_firestorm_icestorm(struct cpuInfo* cpu) {
   ice->topo->cach = ice->cach;
   ice->topo->total_cores = 4;
   ice->freq = malloc(sizeof(struct frequency));
-  ice->freq->base = UNKNOWN_FREQ;
+  ice->freq->base = UNKNOWN_DATA;
   ice->freq->max = 2064;
   ice->hv = malloc(sizeof(struct hypervisor));
   ice->hv->present = false;
@@ -272,7 +272,7 @@ void fill_cpu_info_firestorm_icestorm(struct cpuInfo* cpu) {
   fire->topo->cach = fire->cach;
   fire->topo->total_cores = 4;
   fire->freq = malloc(sizeof(struct frequency));
-  fire->freq->base = UNKNOWN_FREQ;
+  fire->freq->base = UNKNOWN_DATA;
   fire->freq->max = 3200;
   fire->hv = malloc(sizeof(struct hypervisor));
   fire->hv->present = false;
@@ -368,7 +368,7 @@ void print_debug(struct cpuInfo* cpu) {
     else {
       printf("0x%.8X ", midr);
     }
-    if(freq == UNKNOWN_FREQ) {
+    if(freq == UNKNOWN_DATA) {
       printWarn("Unable to fetch max frequency for core %d. This is probably because the core is offline", i);
       printf("%ld MHz\n", get_max_freq_from_file(0));
     }
