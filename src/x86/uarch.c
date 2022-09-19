@@ -79,7 +79,7 @@ enum {
   UARCH_GOLDMONT_PLUS,
   UARCH_TREMONT,
   UARCH_LAKEMONT,
-  UARCH_COFFE_LAKE,
+  UARCH_COFFEE_LAKE,
   UARCH_ITANIUM,
   UARCH_KNIGHTS_FERRY,
   UARCH_KNIGHTS_CORNER,
@@ -90,6 +90,7 @@ enum {
   UARCH_ITANIUM2,
   UARCH_ICE_LAKE,
   UARCH_TIGER_LAKE,
+  UARCH_ALDER_LAKE,
   // AMD //
   UARCH_AM486,
   UARCH_AM5X86,
@@ -108,7 +109,8 @@ enum {
   UARCH_ZEN,
   UARCH_ZEN_PLUS,
   UARCH_ZEN2,
-  UARCH_ZEN3
+  UARCH_ZEN3,
+  UARCH_ZEN3_PLUS
 };
 
 struct uarch {
@@ -224,18 +226,19 @@ struct uarch* get_uarch_from_cpuid_intel(uint32_t ef, uint32_t f, uint32_t em, u
   CHECK_UARCH(arch, 0,  6,  8, 12, NA, "Tiger Lake",      UARCH_TIGER_LAKE,       10) // instlatx64
   CHECK_UARCH(arch, 0,  6,  8, 13, NA, "Tiger Lake",      UARCH_TIGER_LAKE,       10) // instlatx64
   // CHECK_UARCH(arch, 0,  6,  8, 14,  9, ...) It is not possible to determine uarch only from CPUID dump (can be Kaby Lake or Amber Lake)
-  CHECK_UARCH(arch, 0,  6,  8, 14, 10, "Kaby Lake",       UARCH_KABY_LAKE,        14) // wikichip
+  CHECK_UARCH(arch, 0,  6,  8, 14, 10, "Coffee Lake",     UARCH_COFFEE_LAKE,      14) // wikichip
   CHECK_UARCH(arch, 0,  6,  8, 14, 11, "Whiskey Lake",    UARCH_WHISKEY_LAKE,     14) // wikichip
   CHECK_UARCH(arch, 0,  6,  8, 14, 12, "Comet Lake",      UARCH_COMET_LAKE,       14) // wikichip
   CHECK_UARCH(arch, 0,  6,  9,  6, NA, "Tremont",         UARCH_TREMONT,          10) // LX*
+  CHECK_UARCH(arch, 0,  6,  9,  7, NA, "Alder Lake",      UARCH_ALDER_LAKE,       10) // wikichip
   CHECK_UARCH(arch, 0,  6,  9, 10, NA, "Tremont",         UARCH_TREMONT,          10) // instlatx64
   CHECK_UARCH(arch, 0,  6,  9, 12, NA, "Tremont",         UARCH_TREMONT,          10) // LX*
   CHECK_UARCH(arch, 0,  6,  9, 13, NA, "Sunny Cove",      UARCH_SUNNY_COVE,       10) // LX*
   CHECK_UARCH(arch, 0,  6,  9, 14,  9, "Kaby Lake",       UARCH_KABY_LAKE,        14)
-  CHECK_UARCH(arch, 0,  6,  9, 14, 10, "Coffee Lake",     UARCH_COFFE_LAKE,       14)
-  CHECK_UARCH(arch, 0,  6,  9, 14, 11, "Coffee Lake",     UARCH_COFFE_LAKE,       14)
-  CHECK_UARCH(arch, 0,  6,  9, 14, 12, "Coffee Lake",     UARCH_COFFE_LAKE,       14)
-  CHECK_UARCH(arch, 0,  6,  9, 14, 13, "Coffee Lake",     UARCH_COFFE_LAKE,       14)
+  CHECK_UARCH(arch, 0,  6,  9, 14, 10, "Coffee Lake",     UARCH_COFFEE_LAKE,      14)
+  CHECK_UARCH(arch, 0,  6,  9, 14, 11, "Coffee Lake",     UARCH_COFFEE_LAKE,      14)
+  CHECK_UARCH(arch, 0,  6,  9, 14, 12, "Coffee Lake",     UARCH_COFFEE_LAKE,      14)
+  CHECK_UARCH(arch, 0,  6,  9, 14, 13, "Coffee Lake",     UARCH_COFFEE_LAKE,      14)
   CHECK_UARCH(arch, 0,  6, 10,  5, NA, "Comet Lake",      UARCH_COMET_LAKE,       14) // wikichip
   CHECK_UARCH(arch, 0,  6, 10,  6, NA, "Comet Lake",      UARCH_COMET_LAKE,       14) // instlatx64.atw.hu (i7-10710U)
   CHECK_UARCH(arch, 0,  6, 10,  7, NA, "Rocket Lake",     UARCH_ROCKET_LAKE,      14) // instlatx64.atw.hu (i7-11700K)
@@ -356,8 +359,10 @@ struct uarch* get_uarch_from_cpuid_amd(uint32_t ef, uint32_t f, uint32_t em, uin
   CHECK_UARCH(arch,  8, 15,  6,  0, NA, "Zen 2",       UARCH_ZEN2,         7) // undocumented, geekbench.com example
   CHECK_UARCH(arch,  8, 15,  6,  8, NA, "Zen 2",       UARCH_ZEN2,         7) // found on instlatx64
   CHECK_UARCH(arch,  8, 15,  7,  1, NA, "Zen 2",       UARCH_ZEN2,         7) // samples from Steven Noonan and instlatx64
+  CHECK_UARCH(arch,  8, 15,  9,  0,  2, "Zen 2",       UARCH_ZEN2,         7) // Steam Deck (instlatx64)
   CHECK_UARCH(arch, 10, 15,  0,  1, NA, "Zen 3",       UARCH_ZEN3,         7) // instlatx64
   CHECK_UARCH(arch, 10, 15,  2,  1, NA, "Zen 3",       UARCH_ZEN3,         7) // instlatx64
+  CHECK_UARCH(arch, 10, 15,  4,  4, NA, "Zen 3+",      UARCH_ZEN3_PLUS,    6) // instlatx64 (they say it is Zen3...)
   CHECK_UARCH(arch, 10, 15,  5,  0, NA, "Zen 3",       UARCH_ZEN3,         7) // instlatx64
   UARCH_END
 
@@ -406,7 +411,7 @@ int get_number_of_vpus(struct cpuInfo* cpu) {
       case UARCH_ROCKET_LAKE:
       case UARCH_AMBER_LAKE:
       case UARCH_WHISKEY_LAKE:
-      case UARCH_COFFE_LAKE:
+      case UARCH_COFFEE_LAKE:
       case UARCH_PALM_COVE:
 
       case UARCH_KNIGHTS_LANDING:
@@ -418,6 +423,7 @@ int get_number_of_vpus(struct cpuInfo* cpu) {
       // AMD
       case UARCH_ZEN2:
       case UARCH_ZEN3:
+      case UARCH_ZEN3_PLUS:
         return 2;
       default:
         return 1;
@@ -426,6 +432,7 @@ int get_number_of_vpus(struct cpuInfo* cpu) {
 
 bool choose_new_intel_logo_uarch(struct cpuInfo* cpu) {
   switch(cpu->arch->uarch) {
+    case UARCH_ALDER_LAKE:
     case UARCH_ROCKET_LAKE:
     case UARCH_TIGER_LAKE:
       return true;
