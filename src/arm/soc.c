@@ -68,6 +68,50 @@ char* toupperstr(char* str) {
   return ret;
 }
 
+uint32_t get_sid_from_nvmem(char* buf) {
+  uint32_t sid = 0;
+  sid += (unsigned char) buf[0] * 1<<0;
+  sid += (unsigned char) buf[1] * 1<<8;
+  sid += (unsigned char) buf[2] * 1<<16;
+  sid += (unsigned char) buf[3] * 1<<24;
+  return sid;
+}
+
+// Security ID (SID) is an identifier that can help with SoC detection
+// in Allwinner SoCs (https://linux-sunxi.org/SID_Register_Guide#Security_ID)
+// SIDs list:
+// - https://linux-sunxi.org/SID_Register_Guide#Currently_known_SID.27s
+// - https://github.com/Dr-Noob/cpufetch/issues/173
+bool get_sunxisoc_from_sid(struct system_on_chip* soc, char* raw_name, uint32_t sid) {
+  typedef struct {
+    uint32_t sid;
+    struct system_on_chip soc;
+  } sidToSoC;
+
+  sidToSoC socFromSid[] = {
+    // H2+
+    {0x02c00042, {SOC_ALLWINNER_H2PLUS, SOC_VENDOR_ALLWINNER, 40, "H2+", raw_name} },
+    // H3
+    {0x02c00142, {SOC_ALLWINNER_H3,     SOC_VENDOR_ALLWINNER, 40, "H3",  raw_name} },
+    {0x02c00181, {SOC_ALLWINNER_H3,     SOC_VENDOR_ALLWINNER, 40, "H3",  raw_name} },
+    {0x02c00081, {SOC_ALLWINNER_H3,     SOC_VENDOR_ALLWINNER, 40, "H3",  raw_name} },
+    // Unknown
+    {0x00000000, {UNKNOWN,              SOC_VENDOR_UNKNOWN,   -1, "",    raw_name} }
+  };
+
+  int index = 0;
+  while(socFromSid[index].sid != 0x0) {
+    if(socFromSid[index].sid == sid) {
+      fill_soc(soc, socFromSid[index].soc.soc_name, socFromSid[index].soc.soc_model, socFromSid[index].soc.process);
+      return true;
+    }
+    index++;
+  }
+
+  printErr("SID was found but it does not match any known SIDs: %08x\n", sid);
+  return false;
+}
+
 #define SOC_START if (false) {}
 #define SOC_EQ(raw_name, expected_name, soc_name, soc_model, soc, process) \
    else if (match_soc(soc, raw_name, expected_name, soc_name, soc_model, process)) return true;
@@ -111,11 +155,11 @@ bool match_broadcom(char* soc_name, struct system_on_chip* soc) {
 bool match_hisilicon(char* soc_name, struct system_on_chip* soc) {
   char* tmp;
 
-  if((tmp = strstr(soc_name, "Hi")) == NULL)
+  if((tmp = strstr(soc_name, "hi")) == NULL)
     return false;
 
   SOC_START
-  SOC_EQ(tmp, "Hi3620GFC",  "K3V2",  SOC_HISILICON_3620, soc, 40)
+  SOC_EQ(tmp, "hi3620GFC",  "K3V2",  SOC_HISILICON_3620, soc, 40)
   //SOC_EQ(tmp, "?",        "K3V2E", SOC_KIRIN, soc,  ?)
   //SOC_EQ(tmp, "?",        "620",   SOC_KIRIN, soc, 28)
   //SOC_EQ(tmp, "?",        "650",   SOC_KIRIN, soc, 16)
@@ -131,18 +175,18 @@ bool match_hisilicon(char* soc_name, struct system_on_chip* soc) {
   //SOC_EQ(tmp, "?",        "9000E", SOC_KIRIN, soc,  5)
   //SOC_EQ(tmp, "?",        "910",   SOC_KIRIN, soc, 28)
   //SOC_EQ(tmp, "?",        "910T",  SOC_KIRIN, soc, 28)
-  SOC_EQ(tmp, "Hi3630",     "920",   SOC_HISILICON_3630, soc, 28)
+  SOC_EQ(tmp, "hi3630",     "920",   SOC_HISILICON_3630, soc, 28)
   //SOC_EQ(tmp, "?",        "925",   SOC_KIRIN, soc, 28)
   //SOC_EQ(tmp, "?",        "930",   SOC_KIRIN, soc, ?)
   //SOC_EQ(tmp, "?",        "935",   SOC_KIRIN, soc, ?)
-  SOC_EQ(tmp, "Hi3650",     "950",   SOC_HISILICON_3650, soc, 16)
+  SOC_EQ(tmp, "hi3650",     "950",   SOC_HISILICON_3650, soc, 16)
   //SOC_EQ(tmp, "?",        "955",   SOC_KIRIN, soc, ?)
-  SOC_EQ(tmp, "Hi3660",     "960",   SOC_HISILICON_3660, soc, 16)
+  SOC_EQ(tmp, "hi3660",     "960",   SOC_HISILICON_3660, soc, 16)
   //SOC_EQ(tmp, "?",        "960S",  SOC_KIRIN, soc, 16)
-  SOC_EQ(tmp, "Hi3670",     "970",   SOC_HISILICON_3670, soc, 10)
-  SOC_EQ(tmp, "Hi3680",     "980",   SOC_HISILICON_3680, soc,  7)
+  SOC_EQ(tmp, "hi3670",     "970",   SOC_HISILICON_3670, soc, 10)
+  SOC_EQ(tmp, "hi3680",     "980",   SOC_HISILICON_3680, soc,  7)
   //SOC_EQ(tmp, "?",        "985",   SOC_KIRIN, soc,  7)
-  SOC_EQ(tmp, "Hi3690",     "990",   SOC_HISILICON_3690, soc,  7)
+  SOC_EQ(tmp, "hi3690",     "990",   SOC_HISILICON_3690, soc,  7)
   SOC_END
 }
 
@@ -430,6 +474,7 @@ bool match_qualcomm(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "SM7125",         "720G",      SOC_SNAPD_SM7125,         soc,  8)
   SOC_EQ(tmp, "SM7150-AA",      "730",       SOC_SNAPD_SM7150_AA,      soc,  8)
   SOC_EQ(tmp, "SM7150-AB",      "730G",      SOC_SNAPD_SM7150_AB,      soc,  8)
+  SOC_EQ(tmp, "SDM730G",        "730G",      SOC_SNAPD_SM7150_AB,      soc,  8) // Issue #174
   SOC_EQ(tmp, "SM7150-AC",      "732G",      SOC_SNAPD_SM7150_AC,      soc,  8)
   SOC_EQ(tmp, "SM7225",         "750G",      SOC_SNAPD_SM7225,         soc,  8)
   SOC_EQ(tmp, "SM7250-AA",      "765",       SOC_SNAPD_SM7250_AA,      soc,  7)
@@ -467,39 +512,22 @@ bool match_allwinner(char* soc_name, struct system_on_chip* soc) {
     return false;
 
   SOC_START
-  // A series 32 bits
+  // SoCs we can detect just with with the name
   SOC_EQ(tmp, "sun4i", "A10",   SOC_ALLWINNER_A10,  soc, 55)
-  SOC_EQ(tmp, "sun5i", "A13",   SOC_ALLWINNER_A13,  soc, 55)
-  SOC_EQ(tmp, "sun5i", "A10s",  SOC_ALLWINNER_A10S, soc, 55)
-  SOC_EQ(tmp, "sun7i", "A20",   SOC_ALLWINNER_A20,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "A23",   SOC_ALLWINNER_A23,  soc, 40)
   SOC_EQ(tmp, "sun6i", "A31",   SOC_ALLWINNER_A31,  soc, 40)
-  SOC_EQ(tmp, "sun6i", "A31s",  SOC_ALLWINNER_A31S, soc, 40)
-  SOC_EQ(tmp, "sun8i", "A33",   SOC_ALLWINNER_A33,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "A40",   SOC_ALLWINNER_A40,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "A50",   SOC_ALLWINNER_A50,  soc, 28)
-  SOC_EQ(tmp, "sun9i", "A80",   SOC_ALLWINNER_A80,  soc, 28)
-  SOC_EQ(tmp, "sun8i", "A83T",  SOC_ALLWINNER_A83T, soc, 28)
-
-  // H series 32 bits
-  SOC_EQ(tmp, "sun8i", "H2+",   SOC_ALLWINNER_HZP,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "H3",    SOC_ALLWINNER_H3,   soc, 40)
-  SOC_EQ(tmp, "sun8i", "H8",    SOC_ALLWINNER_H8,   soc, 28)
-
-  // H series 64 bits
-  SOC_EQ(tmp, "sun50i", "H5",   SOC_ALLWINNER_H5,   soc, 40)
-  SOC_EQ(tmp, "sun50i", "H6",   SOC_ALLWINNER_H6,   soc, 28)
-  SOC_EQ(tmp, "sun50i", "H616", SOC_ALLWINNER_H616, soc, 28)
-
-  // R series 32 bits
-  SOC_EQ(tmp, "sun5i", "R8",    SOC_ALLWINNER_R8,   soc, 55)
-  SOC_EQ(tmp, "sun8i", "R16",   SOC_ALLWINNER_R16,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "R40",   SOC_ALLWINNER_R40,  soc, 40)
-  SOC_EQ(tmp, "sun8i", "R58",   SOC_ALLWINNER_R58,  soc, 28)
-
-  // R series  64 bits
-  SOC_EQ(tmp, "sun50i", "R329", SOC_ALLWINNER_R328, soc, 28)
-  SOC_END
+  SOC_EQ(tmp, "sun7i", "A20",   SOC_ALLWINNER_A20,  soc, 40)
+  else {
+    // sun5i/sun8i/sun9i/sun50i will fall here
+    // We need SID to actually distingish between the exact model
+    int filelen;
+    char* sid_nvmem = read_file(_PATH_SUNXI_NVMEM, &filelen);
+    if(sid_nvmem == NULL) {
+      printWarn("read_file: %s: %s\n", _PATH_SUNXI_NVMEM, strerror(errno));
+      return false;
+    }
+    uint32_t sid = get_sid_from_nvmem(sid_nvmem);
+    return get_sunxisoc_from_sid(soc, soc_name, sid);
+  }
 }
 
 bool match_special(char* soc_name, struct system_on_chip* soc) {
@@ -514,6 +542,12 @@ bool match_special(char* soc_name, struct system_on_chip* soc) {
   // Snapdragon 730 reported as "Qualcomm Technologies, Inc. SDMMAGPIE"
   if((tmp = strstr(soc_name, "SDMMAGPIE")) != NULL) {
     fill_soc(soc, "730", SOC_SNAPD_SM7150_AA, 8);
+    return true;
+  }
+
+  // Snapdragon 8 Gen 1 reported as "taro"
+  if(strcmp(soc_name, "taro") == 0) {
+    fill_soc(soc, "8 Gen 1", SOC_SNAPD_SM8450, 4);
     return true;
   }
 
@@ -696,7 +730,7 @@ struct system_on_chip* guess_soc_apple(struct system_on_chip* soc) {
 }
 #endif
 
-struct system_on_chip* get_soc() {
+struct system_on_chip* get_soc(void) {
   struct system_on_chip* soc = emalloc(sizeof(struct system_on_chip));
   soc->raw_name = NULL;
   soc->soc_vendor = SOC_VENDOR_UNKNOWN;

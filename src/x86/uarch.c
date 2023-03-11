@@ -91,6 +91,7 @@ enum {
   UARCH_ICE_LAKE,
   UARCH_TIGER_LAKE,
   UARCH_ALDER_LAKE,
+  UARCH_RAPTOR_LAKE,
   // AMD //
   UARCH_AM486,
   UARCH_AM5X86,
@@ -110,7 +111,8 @@ enum {
   UARCH_ZEN_PLUS,
   UARCH_ZEN2,
   UARCH_ZEN3,
-  UARCH_ZEN3_PLUS
+  UARCH_ZEN3_PLUS,
+  UARCH_ZEN4
 };
 
 struct uarch {
@@ -226,12 +228,12 @@ struct uarch* get_uarch_from_cpuid_intel(uint32_t ef, uint32_t f, uint32_t em, u
   CHECK_UARCH(arch, 0,  6,  8, 12, NA, "Tiger Lake",      UARCH_TIGER_LAKE,       10) // instlatx64
   CHECK_UARCH(arch, 0,  6,  8, 13, NA, "Tiger Lake",      UARCH_TIGER_LAKE,       10) // instlatx64
   // CHECK_UARCH(arch, 0,  6,  8, 14,  9, ...) It is not possible to determine uarch only from CPUID dump (can be Kaby Lake or Amber Lake)
-  CHECK_UARCH(arch, 0,  6,  8, 14, 10, "Coffee Lake",     UARCH_COFFEE_LAKE,      14) // wikichip
+  // CHECK_UARCH(arch, 0,  6,  8, 14, 10, ...) It is not possible to determine uarch only from CPUID dump (can be Kaby Lake R or Coffee Lake U)
   CHECK_UARCH(arch, 0,  6,  8, 14, 11, "Whiskey Lake",    UARCH_WHISKEY_LAKE,     14) // wikichip
   CHECK_UARCH(arch, 0,  6,  8, 14, 12, "Comet Lake",      UARCH_COMET_LAKE,       14) // wikichip
   CHECK_UARCH(arch, 0,  6,  9,  6, NA, "Tremont",         UARCH_TREMONT,          10) // LX*
-  CHECK_UARCH(arch, 0,  6,  9,  7, NA, "Alder Lake",      UARCH_ALDER_LAKE,       10) // wikichip
-  CHECK_UARCH(arch, 0,  6,  9, 10, NA, "Tremont",         UARCH_TREMONT,          10) // instlatx64
+  CHECK_UARCH(arch, 0,  6,  9,  7, NA, "Alder Lake",      UARCH_ALDER_LAKE,       10) // instlatx64 (Alder Lake-S)
+  CHECK_UARCH(arch, 0,  6,  9, 10, NA, "Alder Lake",      UARCH_ALDER_LAKE,       10) // instlatx64 (Alder Lake-P)
   CHECK_UARCH(arch, 0,  6,  9, 12, NA, "Tremont",         UARCH_TREMONT,          10) // LX*
   CHECK_UARCH(arch, 0,  6,  9, 13, NA, "Sunny Cove",      UARCH_SUNNY_COVE,       10) // LX*
   CHECK_UARCH(arch, 0,  6,  9, 14,  9, "Kaby Lake",       UARCH_KABY_LAKE,        14)
@@ -242,6 +244,7 @@ struct uarch* get_uarch_from_cpuid_intel(uint32_t ef, uint32_t f, uint32_t em, u
   CHECK_UARCH(arch, 0,  6, 10,  5, NA, "Comet Lake",      UARCH_COMET_LAKE,       14) // wikichip
   CHECK_UARCH(arch, 0,  6, 10,  6, NA, "Comet Lake",      UARCH_COMET_LAKE,       14) // instlatx64.atw.hu (i7-10710U)
   CHECK_UARCH(arch, 0,  6, 10,  7, NA, "Rocket Lake",     UARCH_ROCKET_LAKE,      14) // instlatx64.atw.hu (i7-11700K)
+  CHECK_UARCH(arch, 0,  6, 11,  7, NA, "Raptor Lake",     UARCH_RAPTOR_LAKE,      10) // instlatx64.atw.hu (i5-13600K)
   CHECK_UARCH(arch, 0, 11,  0,  0, NA, "Knights Ferry",   UARCH_KNIGHTS_FERRY,    45) // found only on en.wikichip.org
   CHECK_UARCH(arch, 0, 11,  0,  1, NA, "Knights Corner",  UARCH_KNIGHTS_CORNER,   22)
   CHECK_UARCH(arch, 0, 15,  0,  0, NA, "Willamette",      UARCH_WILLAMETTE,      180)
@@ -258,7 +261,7 @@ struct uarch* get_uarch_from_cpuid_intel(uint32_t ef, uint32_t f, uint32_t em, u
   return arch;
 }
 
-// iNApired in Todd Allen's decode_uarch_amd
+// Inspired in Todd Allen's decode_uarch_amd
 struct uarch* get_uarch_from_cpuid_amd(uint32_t ef, uint32_t f, uint32_t em, uint32_t m, int s) {
   struct uarch* arch = emalloc(sizeof(struct uarch));
 
@@ -364,6 +367,7 @@ struct uarch* get_uarch_from_cpuid_amd(uint32_t ef, uint32_t f, uint32_t em, uin
   CHECK_UARCH(arch, 10, 15,  2,  1, NA, "Zen 3",       UARCH_ZEN3,         7) // instlatx64
   CHECK_UARCH(arch, 10, 15,  4,  4, NA, "Zen 3+",      UARCH_ZEN3_PLUS,    6) // instlatx64 (they say it is Zen3...)
   CHECK_UARCH(arch, 10, 15,  5,  0, NA, "Zen 3",       UARCH_ZEN3,         7) // instlatx64
+  CHECK_UARCH(arch, 10, 15,  6,  1,  2, "Zen 4",       UARCH_ZEN4,         5) // instlatx64
   UARCH_END
 
   return arch;
@@ -373,6 +377,7 @@ struct uarch* get_uarch_from_cpuid(struct cpuInfo* cpu, uint32_t dump, uint32_t 
   if(cpu->cpu_vendor == CPU_VENDOR_INTEL) {
     if(dump == 0x000806E9) {
       // It is not possible to determine uarch only from CPUID dump (can be Kaby Lake or Amber Lake)
+      // See issue https://github.com/Dr-Noob/cpufetch/issues/122
       struct uarch* arch = emalloc(sizeof(struct uarch));
 
       if(strstr(cpu->cpu_name, "Y") != NULL) {
@@ -380,6 +385,23 @@ struct uarch* get_uarch_from_cpuid(struct cpuInfo* cpu, uint32_t dump, uint32_t 
       }
       else {
         fill_uarch(arch, "Kaby Lake", UARCH_KABY_LAKE, 14);
+      }
+
+      return arch;
+    }
+    else if (dump == 0x000806EA) {
+      // It is not possible to determine uarch only from CPUID dump (can be Kaby Lake R or Coffee Lake U)
+      // See issue https://github.com/Dr-Noob/cpufetch/issues/149
+      struct uarch* arch = emalloc(sizeof(struct uarch));
+
+      if(strstr(cpu->cpu_name, "i5-8250U") != NULL ||
+         strstr(cpu->cpu_name, "i5-8350U") != NULL ||
+         strstr(cpu->cpu_name, "i7-8550U") != NULL ||
+         strstr(cpu->cpu_name, "i7-8650U") != NULL) {
+        fill_uarch(arch, "Kaby Lake", UARCH_KABY_LAKE, 14);
+      }
+      else {
+        fill_uarch(arch, "Coffee Lake", UARCH_COFFEE_LAKE, 14);
       }
 
       return arch;
@@ -419,11 +441,14 @@ int get_number_of_vpus(struct cpuInfo* cpu) {
 
       case UARCH_ICE_LAKE:
       case UARCH_TIGER_LAKE:
+      case UARCH_ALDER_LAKE:
+      case UARCH_RAPTOR_LAKE:
 
       // AMD
       case UARCH_ZEN2:
       case UARCH_ZEN3:
       case UARCH_ZEN3_PLUS:
+      case UARCH_ZEN4:
         return 2;
       default:
         return 1;
@@ -435,6 +460,7 @@ bool choose_new_intel_logo_uarch(struct cpuInfo* cpu) {
     case UARCH_ALDER_LAKE:
     case UARCH_ROCKET_LAKE:
     case UARCH_TIGER_LAKE:
+    case UARCH_RAPTOR_LAKE:
       return true;
     default:
       return false;
