@@ -1,8 +1,8 @@
-#ifndef __SOC_ARM__
-#define __SOC_ARM__
+#ifndef __SOC_RISCV__
+#define __SOC_RISCV__
 
-#include "../common/cpu.h"
 #include "../common/soc.h"
+#include "../common/cpu.h"
 #include <stdint.h>
 
 struct system_on_chip* get_soc(void);

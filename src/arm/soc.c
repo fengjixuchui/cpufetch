@@ -15,46 +15,12 @@
 #define min(a,b) (((a)<(b))?(a):(b))
 #define ARRAY_SIZE(arr)     (sizeof(arr) / sizeof((arr)[0]))
 
-static char* soc_trademark_string[] = {
-  [SOC_VENDOR_SNAPDRAGON] = "Snapdragon ",
-  [SOC_VENDOR_MEDIATEK]   = "MediaTek ",
-  [SOC_VENDOR_EXYNOS]     = "Exynos ",
-  [SOC_VENDOR_KIRIN]      = "Kirin ",
-  [SOC_VENDOR_BROADCOM]   = "Broadcom BCM",
-  [SOC_VENDOR_APPLE]      = "Apple ",
-  [SOC_VENDOR_ALLWINNER]  = "Allwinner "
-};
-
 static char* soc_rpi_string[] = {
   "BCM2835",
   "BCM2836",
   "BCM2837",
   "BCM2711"
 };
-
-void fill_soc(struct system_on_chip* soc, char* soc_name, SOC soc_model, int32_t process) {
-  soc->soc_model = soc_model;
-  soc->soc_vendor = get_soc_vendor_from_soc(soc_model);
-  soc->process = process;
-  int len = strlen(soc_name) + strlen(soc_trademark_string[soc->soc_vendor]) + 1;
-  soc->soc_name = emalloc(sizeof(char) * len);
-  memset(soc->soc_name, 0, sizeof(char) * len);
-  sprintf(soc->soc_name, "%s%s", soc_trademark_string[soc->soc_vendor], soc_name);
-}
-
-bool match_soc(struct system_on_chip* soc, char* raw_name, char* expected_name, char* soc_name, SOC soc_model, int32_t process) {
-  int len1 = strlen(raw_name);
-  int len2 = strlen(expected_name);
-  int len = min(len1, len2);
-
-  if(strncmp(raw_name, expected_name, len) != 0) {
-    return false;
-  }
-  else {
-    fill_soc(soc, soc_name, soc_model, process);
-    return true;
-  }
-}
 
 char* toupperstr(char* str) {
   int len = strlen(str) + 1;
@@ -118,15 +84,11 @@ bool get_sunxisoc_from_sid(struct system_on_chip* soc, char* raw_name, uint32_t 
     index++;
   }
 
-  printErr("SID was found but it does not match any known SIDs: %08x\n", sid);
+  printErr("SID was found but it does not match any known SIDs: %08x", sid);
   return false;
 }
 
-#define SOC_START if (false) {}
-#define SOC_EQ(raw_name, expected_name, soc_name, soc_model, soc, process) \
-   else if (match_soc(soc, raw_name, expected_name, soc_name, soc_model, process)) return true;
-#define SOC_END else { return false; }
-// Exynos special define
+// Exynos special define (not included in src/common/soc.h)
 #define SOC_EXY_EQ(raw_name, tmpsoc, soc_name, soc_model, soc, process)             \
    sprintf(tmpsoc, "exynos%s", soc_name);                                           \
    if (match_soc(soc, raw_name, tmpsoc, soc_name, soc_model, process)) return true; \
@@ -141,6 +103,8 @@ bool match_broadcom(char* soc_name, struct system_on_chip* soc) {
 
   if((tmp = strstr(soc_name, "BCM")) == NULL)
     return false;
+
+  soc->soc_vendor = SOC_VENDOR_BROADCOM;
 
   SOC_START
   SOC_EQ(tmp, "BCM2835",              "2835",              SOC_BCM_2835,   soc, 65)
@@ -167,6 +131,8 @@ bool match_hisilicon(char* soc_name, struct system_on_chip* soc) {
 
   if((tmp = strstr(soc_name, "hi")) == NULL)
     return false;
+
+  soc->soc_vendor = SOC_VENDOR_KIRIN;
 
   SOC_START
   SOC_EQ(tmp, "hi3620GFC",  "K3V2",  SOC_HISILICON_3620, soc, 40)
@@ -206,6 +172,8 @@ bool match_exynos(char* soc_name, struct system_on_chip* soc) {
   if((tmp = strstr(soc_name, "universal")) != NULL);
   else if((tmp = strstr(soc_name, "exynos")) != NULL);
   else return false;
+
+  soc->soc_vendor = SOC_VENDOR_EXYNOS;
 
   // Because exynos are recently using "exynosXXXX" instead
   // of "universalXXXX" as codenames, SOC_EXY_EQ will check for
@@ -260,6 +228,8 @@ bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
 
   if((tmp = strstr(soc_name_upper, "MT")) == NULL)
     return false;
+
+  soc->soc_vendor = SOC_VENDOR_MEDIATEK;
 
   SOC_START
   // Dimensity //
@@ -388,6 +358,8 @@ bool match_qualcomm(char* soc_name, struct system_on_chip* soc) {
   else if((tmp = strstr(soc_name_upper, "QM")) != NULL);
   else if((tmp = strstr(soc_name_upper, "QSD")) != NULL);
   else return false;
+
+  soc->soc_vendor = SOC_VENDOR_SNAPDRAGON;
 
   SOC_START
   // Snapdragon S1 //
@@ -521,6 +493,8 @@ bool match_allwinner(char* soc_name, struct system_on_chip* soc) {
   if((tmp = strstr(soc_name, "sun")) == NULL)
     return false;
 
+  soc->soc_vendor = SOC_VENDOR_ALLWINNER;
+
   SOC_START
   // SoCs we can detect just with with the name
   SOC_EQ(tmp, "sun4i", "A10",   SOC_ALLWINNER_A10,  soc, 55)
@@ -532,7 +506,7 @@ bool match_allwinner(char* soc_name, struct system_on_chip* soc) {
     int filelen;
     char* sid_nvmem = read_file(_PATH_SUNXI_NVMEM, &filelen);
     if(sid_nvmem == NULL) {
-      printWarn("read_file: %s: %s\n", _PATH_SUNXI_NVMEM, strerror(errno));
+      printWarn("read_file: %s: %s", _PATH_SUNXI_NVMEM, strerror(errno));
       return false;
     }
     uint32_t sid = get_sid_from_nvmem(sid_nvmem);
@@ -644,6 +618,70 @@ struct system_on_chip* guess_soc_from_cpuinfo(struct system_on_chip* soc) {
   return soc;
 }
 
+char* get_rk_efuse(void) {
+  int filelen;
+  char* rk_soc = read_file(_PATH_RK_EFUSE0, &filelen);
+  if(rk_soc == NULL) {
+    printWarn("read_file: %s: %s", _PATH_RK_EFUSE0, strerror(errno));
+  }
+  return rk_soc;
+}
+
+bool get_rk_soc_from_efuse(struct system_on_chip* soc, char* efuse) {
+  typedef struct {
+    uint16_t rk_soc;
+    struct system_on_chip soc;
+  } rkToSoC;
+
+  uint16_t rk_soc = efuse[2]*256 + efuse[3];
+
+  // https://wikimovel.com/index.php/Rockchip
+  rkToSoC socFromRK[] = {
+    // TODO: Add RK2XXX
+    // RK3XXX
+    {0x2388, {SOC_ROCKCHIP_3288, SOC_VENDOR_ROCKCHIP, 28, "RK3288",  NULL} },
+    {0x2392, {SOC_ROCKCHIP_3229, SOC_VENDOR_ROCKCHIP, 28, "RK3229",  NULL} }, // https://gadgetversus.com/processor/rockchip-rk3229-vs-rockchip-rk3128/
+    {0x3380, {SOC_ROCKCHIP_3308, SOC_VENDOR_ROCKCHIP, 28, "RK3308",  NULL} }, // https://en.t-firefly.com/product/rocrk3308cc?theme=pc
+    {0x3381, {SOC_ROCKCHIP_3318, SOC_VENDOR_ROCKCHIP, 28, "RK3318",  NULL} },
+    {0x3362, {SOC_ROCKCHIP_3326, SOC_VENDOR_ROCKCHIP, 28, "RK3326",  NULL} },
+    {0x3382, {SOC_ROCKCHIP_3328, SOC_VENDOR_ROCKCHIP, 28, "RK3328",  NULL} },
+    {0x3386, {SOC_ROCKCHIP_3368, SOC_VENDOR_ROCKCHIP, 28, "RK3368",  NULL} },
+    {0x3399, {SOC_ROCKCHIP_3399, SOC_VENDOR_ROCKCHIP, 28, "RK3399",  NULL} },
+    {0x5366, {SOC_ROCKCHIP_3566, SOC_VENDOR_ROCKCHIP, 22, "RK3566",  NULL} },
+    {0x5386, {SOC_ROCKCHIP_3568, SOC_VENDOR_ROCKCHIP, 22, "RK3568",  NULL} },
+    {0x5388, {SOC_ROCKCHIP_3588, SOC_VENDOR_ROCKCHIP,  8, "RK3588",  NULL} },
+    // Unknown
+    {0x0000, {UNKNOWN,           SOC_VENDOR_UNKNOWN,   -1,       "", NULL} }
+  };
+
+  int index = 0;
+  while(socFromRK[index].rk_soc != 0x0) {
+    if(socFromRK[index].rk_soc == rk_soc) {
+      fill_soc(soc, socFromRK[index].soc.soc_name, socFromRK[index].soc.soc_model, socFromRK[index].soc.process);
+      return true;
+    }
+    index++;
+  }
+
+  printErr("RK SoC was found but it does not match any known SoCs: 0x%04x", rk_soc);
+  return false;
+}
+
+struct system_on_chip* guess_soc_from_nvmem(struct system_on_chip* soc) {
+  // This method is only valid for Rockchip SoCs
+  char* rk_soc = get_rk_efuse();
+  if(rk_soc != NULL) {
+    if(rk_soc[0] == 0x52 && rk_soc[1] == 0x4b) {
+      get_rk_soc_from_efuse(soc, rk_soc);
+      return soc;
+    }
+    else {
+      printWarn("guess_soc_from_nvmem: efuse found, but contains unexpected header: 0x%x 0x%x", rk_soc[0], rk_soc[1]);
+    }
+  }
+  return soc;
+}
+
 int hex2int(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
@@ -744,6 +782,7 @@ struct system_on_chip* get_soc(void) {
   struct system_on_chip* soc = emalloc(sizeof(struct system_on_chip));
   soc->raw_name = NULL;
   soc->soc_vendor = SOC_VENDOR_UNKNOWN;
+  soc->soc_model = SOC_MODEL_UNKNOWN;
   soc->process = UNKNOWN;
 
 #ifdef __linux__
@@ -760,17 +799,25 @@ struct system_on_chip* get_soc(void) {
 
   soc = guess_soc_from_cpuinfo(soc);
   if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
-    if(soc->raw_name != NULL)
+    if(soc->raw_name != NULL) {
       printWarn("SoC detection failed using /proc/cpuinfo: Found '%s' string", soc->raw_name);
-    else
+    }
+    else {
       printWarn("SoC detection failed using /proc/cpuinfo: No string found");
+    }
 #ifdef __ANDROID__
     soc = guess_soc_from_android(soc);
-    if(soc->raw_name == NULL)
+    if(soc->raw_name == NULL) {
       printWarn("SoC detection failed using Android: No string found");
-    else if(soc->soc_vendor == SOC_VENDOR_UNKNOWN)
+    }
+    else if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
       printWarn("SoC detection failed using Android: Found '%s' string", soc->raw_name);
+    }
 #endif // ifdef __ANDROID__
+    // If cpufinfo/Android (if available) detection fails, try with nvmem
+    if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
+      soc = guess_soc_from_nvmem(soc);
+    }
   }
 #elif defined __APPLE__ || __MACH__
   soc = guess_soc_apple(soc);
@@ -782,35 +829,12 @@ struct system_on_chip* get_soc(void) {
   }
 #endif // ifdef __linux__
 
-  if(soc->raw_name == NULL) {
+  if(soc->soc_model == SOC_MODEL_UNKNOWN) {
+    // raw_name might not be NULL, but if we were unable to find
+    // the exact SoC, just print "Unkwnown"
     soc->raw_name = emalloc(sizeof(char) * (strlen(STRING_UNKNOWN)+1));
     snprintf(soc->raw_name, strlen(STRING_UNKNOWN)+1, STRING_UNKNOWN);
   }
 
   return soc;
-}
-
-char* get_soc_name(struct system_on_chip* soc) {
-  if(soc->soc_vendor == SOC_VENDOR_UNKNOWN)
-    return soc->raw_name;
-  return soc->soc_name;
-}
-
-VENDOR get_soc_vendor(struct system_on_chip* soc) {
-  return soc->soc_vendor;
-}
-
-char* get_str_process(struct system_on_chip* soc) {
-  char* str;
-
-  if(soc->process == UNKNOWN) {
-    str = emalloc(sizeof(char) * (strlen(STRING_UNKNOWN)+1));
-    snprintf(str, strlen(STRING_UNKNOWN)+1, STRING_UNKNOWN);
-  }
-  else {
-    str = emalloc(sizeof(char) * 5);
-    memset(str, 0, sizeof(char) * 5);
-    snprintf(str, 5, "%dnm", soc->process);
-  }
-  return str;
 }

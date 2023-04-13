@@ -1,7 +1,7 @@
 CC ?= gcc
 
 CFLAGS+=-Wall -Wextra -pedantic
-SANITY_FLAGS=-Wfloat-equal -Wshadow -Wpointer-arith
+SANITY_FLAGS=-Wfloat-equal -Wshadow -Wpointer-arith -Wstrict-prototypes
 
 PREFIX ?= /usr
 
@@ -32,8 +32,8 @@ ifneq ($(OS),Windows_NT)
 		CFLAGS += -DARCH_PPC -std=gnu99 -fstack-protector-all -Wno-language-extension-token
 	else ifeq ($(arch), $(filter $(arch), arm aarch64_be aarch64 arm64 armv8b armv8l armv7l armv6l))
 		SRC_DIR=src/arm/
-		SOURCE += $(COMMON_SRC) $(SRC_DIR)midr.c $(SRC_DIR)uarch.c $(SRC_DIR)soc.c $(SRC_DIR)udev.c
-		HEADERS += $(COMMON_HDR) $(SRC_DIR)midr.h $(SRC_DIR)uarch.h  $(SRC_DIR)soc.h $(SRC_DIR)udev.c $(SRC_DIR)socs.h
+		SOURCE += $(COMMON_SRC) $(SRC_DIR)midr.c $(SRC_DIR)uarch.c $(SRC_COMMON)soc.c $(SRC_DIR)soc.c $(SRC_DIR)udev.c
+		HEADERS += $(COMMON_HDR) $(SRC_DIR)midr.h $(SRC_DIR)uarch.h  $(SRC_COMMON)soc.h $(SRC_DIR)soc.h $(SRC_DIR)udev.c $(SRC_DIR)socs.h
 		CFLAGS += -DARCH_ARM -Wno-unused-parameter -std=c99 -fstack-protector-all
 
 		os := $(shell uname -s)
@@ -41,6 +41,11 @@ ifneq ($(OS),Windows_NT)
 			SOURCE += $(SRC_DIR)sysctl.c
 			HEADERS += $(SRC_DIR)sysctl.h
 		endif
+        else ifeq ($(arch), $(filter $(arch), riscv64 riscv32))
+                SRC_DIR=src/riscv/
+                SOURCE += $(COMMON_SRC) $(SRC_DIR)riscv.c $(SRC_DIR)uarch.c $(SRC_COMMON)soc.c $(SRC_DIR)soc.c $(SRC_DIR)udev.c
+                HEADERS += $(COMMON_HDR) $(SRC_DIR)riscv.h $(SRC_DIR)uarch.h $(SRC_COMMON)soc.h $(SRC_DIR)soc.h $(SRC_DIR)udev.h $(SRC_DIR)socs.h
+                CFLAGS += -DARCH_RISCV -Wno-unused-parameter -std=c99 -fstack-protector-all
 	else
 		# Error lines should not be tabulated because Makefile complains about it
 $(warning Unsupported arch detected: $(arch). See https://github.com/Dr-Noob/cpufetch#1-support)
