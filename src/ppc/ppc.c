@@ -11,6 +11,19 @@
 #include "../common/udev.h"
 #include "../common/global.h"
 
+static char *hv_vendors_name[] = {
+  [HV_VENDOR_KVM]       = "KVM",
+  [HV_VENDOR_QEMU]      = "QEMU",
+  [HV_VENDOR_HYPERV]    = "Microsoft Hyper-V",
+  [HV_VENDOR_VMWARE]    = "VMware",
+  [HV_VENDOR_XEN]       = "Xen",
+  [HV_VENDOR_PARALLELS] = "Parallels",
+  [HV_VENDOR_PHYP]      = "pHyp",
+  [HV_VENDOR_BHYVE]     = "bhyve",
+  [HV_VENDOR_APPLEVZ]   = "Apple VZ",
+  [HV_VENDOR_INVALID]   = STRING_UNKNOWN
+};
+
 struct cache* get_cache_info(struct cpuInfo* cpu) {
   struct cache* cach = emalloc(sizeof(struct cache));
   init_cache_struct(cach);
@@ -63,23 +76,30 @@ struct topology* get_topology_info(struct cache* cach) {
     printWarn("fill_core_ids_from_sys failed, output may be incomplete/invalid");
     for(int i=0; i < topo->total_cores; i++) core_ids[i] = 0;
   }
+
   if(!fill_package_ids_from_sys(package_ids, topo->total_cores)) {
     printWarn("fill_package_ids_from_sys failed, output may be incomplete/invalid");
     for(int i=0; i < topo->total_cores; i++) package_ids[i] = 0;
+    // fill_package_ids_from_sys failed, use a
+    // more sophisticated wat to find the number of sockets
+    topo->sockets = get_num_sockets_package_cpus(topo);
   }
-
-  // 2. Socket detection
-  int *package_ids_count = emalloc(sizeof(int) * topo->total_cores);
-  for(int i=0; i < topo->total_cores; i++) {
-    package_ids_count[i] = 0;
-  }
-  for(int i=0; i < topo->total_cores; i++) {
-    package_ids_count[package_ids[i]]++;
-  }
-  for(int i=0; i < topo->total_cores; i++) {
-    if(package_ids_count[i] != 0) {
-      topo->sockets++;
+  else {
+    // fill_package_ids_from_sys succeeded, use the
+    // traditional socket detection algorithm
+    int *package_ids_count = emalloc(sizeof(int) * topo->total_cores);
+    for(int i=0; i < topo->total_cores; i++) {
+      package_ids_count[i] = 0;
     }
+    for(int i=0; i < topo->total_cores; i++) {
+      package_ids_count[package_ids[i]]++;
+    }
+    for(int i=0; i < topo->total_cores; i++) {
+      if(package_ids_count[i] != 0) {
+        topo->sockets++;
+      }
+    }
+    free(package_ids_count);
   }
 
   // 3. Physical cores detection
@@ -105,7 +125,6 @@ struct topology* get_topology_info(struct cache* cach) {
 
   free(core_ids);
   free(package_ids);
-  free(package_ids_count);
   free(core_ids_unified);
 
   return topo;
@@ -128,6 +147,12 @@ struct frequency* get_frequency_info(void) {
 
   freq->max = get_max_freq_from_file(0);
   freq->base = get_min_freq_from_file(0);
+
+  if(freq->max == UNKNOWN_DATA) {
+    // If we are unable to find it in the
+    // standard path, try /proc/cpuinfo
+    freq->max = get_frequency_from_cpuinfo();
+  }
 
   return freq;
 }
@@ -158,6 +183,28 @@ int64_t get_peak_performance(struct cpuInfo* cpu, struct topology* topo, int64_t
   return flops;
 }
 
+struct hypervisor* get_hp_info(void) {
+  struct hypervisor* hv = emalloc(sizeof(struct hypervisor));
+  hv->present = false;
+
+  // Weird heuristic found in lscpu:
+  // https://github.com/util-linux/util-linux/blob/master/sys-utils/lscpu-virt.c
+  if(access("/proc" _PATH_DT_IBM_PARTIT_NAME, F_OK) == 0 &&
+     access("/proc" _PATH_DT_HMC_MANAGED, F_OK) == 0 &&
+     access("/proc" _PATH_DT_QEMU_WIDTH, F_OK) != 0) {
+    hv->present = true;
+    hv->hv_vendor = HV_VENDOR_PHYP;
+  }
+  else if(is_devtree_compatible("qemu,pseries")) {
+    hv->present = true;
+    hv->hv_vendor = HV_VENDOR_QEMU;
+  }
+
+  hv->hv_name = hv_vendors_name[hv->hv_vendor];
+
+  return hv;
+}
+
 struct cpuInfo* get_cpu_info(void) {
   struct cpuInfo* cpu = emalloc(sizeof(struct cpuInfo));
   struct features* feat = emalloc(sizeof(struct features));
@@ -172,8 +219,11 @@ struct cpuInfo* get_cpu_info(void) {
   char* path = emalloc(sizeof(char) * (strlen(_PATH_DT) + strlen(_PATH_DT_PART) + 1));
   sprintf(path, "%s%s", _PATH_DT, _PATH_DT_PART);
 
-  cpu->cpu_name = read_file(path, &len);
+  if((cpu->cpu_name = read_file(path, &len)) == NULL) {
+    printWarn("Could not open '%s'", path);
+  }
   cpu->pvr = mfpvr();
+  cpu->hv = get_hp_info();
   cpu->arch = get_cpu_uarch(cpu);
   cpu->freq = get_frequency_info();
   cpu->topo = get_topology_info(cpu->cach);

@@ -50,6 +50,8 @@ cpufetch is a command-line tool written in C that displays the CPU information i
   - [4.2 Specifying the colors in RGB format](#42-specifying-the-colors-in-rgb-format)
 - [5. Implementation](#5-implementation)
 - [6. Bugs or improvements](#6-bugs-or-improvements)
+  - [6.1 Unknown microarchitecture error](#61-unknown-microarchitecture-error)
+  - [6.2 Other situations](#62-other-situations)
 - [7. Acknowledgements](#7-acknowledgements)
 - [8. cpufetch for GPUs (gpufetch)](#8-cpufetch-for-gpus-gpufetch)
 
@@ -57,17 +59,17 @@ cpufetch is a command-line tool written in C that displays the CPU information i
 
 ## 1. Support
 
-| OS          | x86_64 / x86       | ARM                | PowerPC            |
-|:-----------:|:------------------:|:------------------:|:------------------:|
-| GNU / Linux | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |
-| Windows     | :heavy_check_mark: | :x:                | :x:                |
-| Android     | :heavy_check_mark: | :heavy_check_mark: | :x:                |
-| macOS       | :heavy_check_mark: | :heavy_check_mark: | :x:                |
-| FreeBSD     | :heavy_check_mark: | :x:                | :x:                |
+| OS          | x86_64 / x86       | ARM                | RISC-V             | PowerPC            |
+|:-----------:|:------------------:|:------------------:|:------------------:|:------------------:|
+| GNU / Linux | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |
+| Windows     | :heavy_check_mark: | :x:                | :x:                | :x:                |
+| Android     | :heavy_check_mark: | :heavy_check_mark: | :x:                | :x:                |
+| macOS       | :heavy_check_mark: | :heavy_check_mark: | :x:                | :heavy_check_mark: |
+| FreeBSD     | :heavy_check_mark: | :x:                | :x:                | :x:                |
 
 **NOTES:**
 - Colors will be used in Windows only if the terminal supports it.
-- Support in macOS ARM is limited to Apple M1 only
+- Support in macOS ARM is limited to Apple chips only
 
 ## 2. Installation
 ### 2.1 Installing from a package
@@ -147,15 +149,32 @@ By default, `cpufetch` will print the CPU logo with the system colorscheme. Howe
 See [cpufetch programming documentation](https://github.com/Dr-Noob/cpufetch/tree/master/doc).
 
 ## 6. Bugs or improvements
+### 6.1 Unknown microarchitecture error
+If you get the `Unknown microarchitecture detected` error when running cpufetch, it might be caused by two possible reasons:
+
+1. You are running an old release of cpufetch (most likely)
+2. Your microarchitecture is not yet supported
+
+Download and compile the latest version (see https://github.com/Dr-Noob/cpufetch#22-building-from-source for instructions)
+and verify if the error persists.
+
+* __If the error dissapears__: It means that this is the first situation. In this case, just use the
+latest version of cpufetch which already has support for your hardware.
+* __If the error does not dissapear__: It means that this is the
+second situation. In this case, please create a new issue with the error message and the output of 'cpufetch --debug' on https://github.com/Dr-Noob/cpufetch/issues
+
+### 6.2 Other situations
 See [cpufetch contributing guidelines](https://github.com/Dr-Noob/cpufetch/blob/master/CONTRIBUTING.md).
 
 ## 7. Acknowledgements
 Thanks to the fellow contributors and interested people in the project. Special thanks to:
 - [Gonzalocl](https://github.com/Gonzalocl) and [OdnetninI](https://github.com/OdnetninI): Tested cpufetch in the earlier versions of the project in many different CPUs.
 - [Kyngo](https://github.com/Kyngo): Tested cpufetch in the Apple M1 CPU.
-- [avollmerhaus](https://github.com/avollmerhaus): Gave me ssh acess to a PowerPC machine, allowing me to develop the PowerPC port.
+- [avollmerhaus](https://github.com/avollmerhaus): Helped with PowerPC port giving ssh access to a PowerPC machine.
 - [bbonev](https://github.com/bbonev) and [stephan-cr](https://github.com/stephan-cr): Reviewed the source code.
-- [mdoksa76](https://github.com/mdoksa76) and [exkc](https://github.com/exkc): Excellent ideas and impeccable feedback for supporting Allwinner SoCs.
+- [mdoksa76](https://github.com/mdoksa76) and [exkc](https://github.com/exkc): Excellent ideas and feedback for supporting Allwinner SoCs.
+- [Sakura286](https://github.com/Sakura286), [exkc](https://github.com/exkc) and [Patola](https://github.com/Patola): Helped with RISC-V port with ssh access, ideas, testing, etc.
+- [ThomasKaiser](https://github.com/ThomasKaiser): Very valuable feedback on improving ARM SoC detection (Apple, Allwinner, Rockchip).
 
 ## 8. cpufetch for GPUs (gpufetch)
 See [gpufetch](https://github.com/Dr-Noob/gpufetch) project!

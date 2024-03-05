@@ -80,26 +80,21 @@ int64_t get_peak_performance(struct cpuInfo* cpu) {
     }
   }
 
-  int64_t flops = 0;
+  int64_t total_flops = 0;
   ptr = cpu;
 
-  if(cpu->soc->soc_vendor == SOC_VENDOR_APPLE) {
-    // Special case for M1/M2
-    // First we find the E cores, then the P
-    // M1 have 2 (E cores) or 4 (P cores) FMA units
-    // Source: https://dougallj.github.io/applecpu/firestorm-simd.html
-    flops += ptr->topo->total_cores * (get_freq(ptr->freq) * 1000000) * 2 * 4 * 2;
-    ptr = ptr->next_cpu;
-    flops += ptr->topo->total_cores * (get_freq(ptr->freq) * 1000000) * 2 * 4 * 4;
-  }
-  else {
-    for(int i=0; i < cpu->num_cpus; ptr = ptr->next_cpu, i++) {
-      flops += ptr->topo->total_cores * (get_freq(ptr->freq) * 1000000);
-    }
-    if(cpu->feat->NEON) flops = flops * 4;
+  for(int i=0; i < cpu->num_cpus; ptr = ptr->next_cpu, i++) {
+    int vpus = get_number_of_vpus(ptr);
+    int vpus_width = get_vpus_width(ptr);
+    bool has_fma = has_fma_support(ptr);
+
+    int64_t flops = ptr->topo->total_cores * get_freq(ptr->freq) * 1000000 * vpus * (vpus_width/32);
+    if(has_fma) flops = flops * 2;
+
+    total_flops += flops;
   }
 
-  return flops;
+  return total_flops;
 }
 
 uint32_t fill_ids_from_midr(uint32_t* midr_array, int32_t* freq_array, uint32_t* ids_array, int len) {
@@ -242,7 +237,7 @@ struct cpuInfo* get_cpu_info_linux(struct cpuInfo* cpu) {
   cpu->num_cpus = sockets;
   cpu->hv = emalloc(sizeof(struct hypervisor));
   cpu->hv->present = false;
-  cpu->soc = get_soc();
+  cpu->soc = get_soc(cpu);
   cpu->peak_performance = get_peak_performance(cpu);
 
   return cpu;
@@ -294,7 +289,7 @@ void fill_cpu_info_avalanche_blizzard(struct cpuInfo* cpu, uint32_t pcores, uint
   bli->feat = get_features_info();
   bli->topo = malloc(sizeof(struct topology));
   bli->topo->cach = bli->cach;
-  bli->topo->total_cores = pcores;
+  bli->topo->total_cores = ecores;
   bli->freq = malloc(sizeof(struct frequency));
   bli->freq->base = UNKNOWN_DATA;
   bli->freq->max = 2800;
@@ -310,7 +305,7 @@ void fill_cpu_info_avalanche_blizzard(struct cpuInfo* cpu, uint32_t pcores, uint
   ava->feat = get_features_info();
   ava->topo = malloc(sizeof(struct topology));
   ava->topo->cach = ava->cach;
-  ava->topo->total_cores = ecores;
+  ava->topo->total_cores = pcores;
   ava->freq = malloc(sizeof(struct frequency));
   ava->freq->base = UNKNOWN_DATA;
   ava->freq->max = 3500;
@@ -319,51 +314,83 @@ void fill_cpu_info_avalanche_blizzard(struct cpuInfo* cpu, uint32_t pcores, uint
   ava->next_cpu = NULL;
 }
 
-struct cpuInfo* get_cpu_info_mach(struct cpuInfo* cpu) {
-  uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
+void fill_cpu_info_everest_sawtooth(struct cpuInfo* cpu, uint32_t pcores, uint32_t ecores) {
+  // 1. Fill SAWTOOTH
+  struct cpuInfo* saw = cpu;
 
+  saw->midr = MIDR_APPLE_M3_SAWTOOTH;
+  saw->arch = get_uarch_from_midr(saw->midr, saw);
+  saw->cach = get_cache_info(saw);
+  saw->feat = get_features_info();
+  saw->topo = malloc(sizeof(struct topology));
+  saw->topo->cach = saw->cach;
+  saw->topo->total_cores = ecores;
+  saw->freq = malloc(sizeof(struct frequency));
+  saw->freq->base = UNKNOWN_DATA;
+  saw->freq->max = 2750;
+  saw->hv = malloc(sizeof(struct hypervisor));
+  saw->hv->present = false;
+  saw->next_cpu = malloc(sizeof(struct cpuInfo));
+
+  // 2. Fill EVEREST
+  struct cpuInfo* eve = saw->next_cpu;
+  eve->midr = MIDR_APPLE_M3_EVEREST;
+  eve->arch = get_uarch_from_midr(eve->midr, eve);
+  eve->cach = get_cache_info(eve);
+  eve->feat = get_features_info();
+  eve->topo = malloc(sizeof(struct topology));
+  eve->topo->cach = eve->cach;
+  eve->topo->total_cores = pcores;
+  eve->freq = malloc(sizeof(struct frequency));
+  eve->freq->base = UNKNOWN_DATA;
+  eve->freq->max = 4050;
+  eve->hv = malloc(sizeof(struct hypervisor));
+  eve->hv->present = false;
+  eve->next_cpu = NULL;
+}
+
+struct cpuInfo* get_cpu_info_mach(struct cpuInfo* cpu) {
+  // https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_system_capabilities
+  uint32_t nperflevels = get_sys_info_by_name("hw.nperflevels");
+
+  if((cpu->num_cpus = nperflevels) != 2) {
+    printBug("Expected to find SoC with 2 perf levels, found: %d", cpu->num_cpus);
+    return NULL;
+  }
+
+  uint32_t pcores = get_sys_info_by_name("hw.perflevel0.physicalcpu");
+  uint32_t ecores = get_sys_info_by_name("hw.perflevel1.physicalcpu");
+  if(ecores <= 0) {
+    printBug("Expected to find a numer of ecores > 0, found: %d", ecores);
+    return NULL;
+  }
+  if(pcores <= 0) {
+    printBug("Expected to find a numer of pcores > 0, found: %d", pcores);
+    return NULL;
+  }
+
+  uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
   // Manually fill the cpuInfo assuming that
-  // the CPU is an Apple M1/M2
+  // the CPU is an Apple SoC
   if(cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM) {
-    cpu->num_cpus = 2;
-    // Now detect the M1 version
-    uint32_t cpu_subfamily = get_sys_info_by_name("hw.cpusubfamily");
-    if(cpu_subfamily == CPUSUBFAMILY_ARM_HG) {
-      // Apple M1
-      fill_cpu_info_firestorm_icestorm(cpu, 4, 4);
-    }
-    else if(cpu_subfamily == CPUSUBFAMILY_ARM_HS || cpu_subfamily == CPUSUBFAMILY_ARM_HC_HD) {
-      // Apple M1 Pro/Max/Ultra. Detect number of cores
-      uint32_t physicalcpu = get_sys_info_by_name("hw.physicalcpu");
-      if(physicalcpu == 20) {
-        // M1 Ultra
-        fill_cpu_info_firestorm_icestorm(cpu, 16, 4);
-      }
-      else if(physicalcpu == 8 || physicalcpu == 10) {
-        // M1 Pro/Max
-        fill_cpu_info_firestorm_icestorm(cpu, physicalcpu-2, 2);
-      }
-      else {
-        printBug("Found invalid physical cpu number: %d", physicalcpu);
-        return NULL;
-      }
-    }
-    else {
-      printBug("Found invalid cpu_subfamily: 0x%.8X", cpu_subfamily);
-      return NULL;
-    }
-    cpu->soc = get_soc();
+    fill_cpu_info_firestorm_icestorm(cpu, pcores, ecores);
+    cpu->soc = get_soc(cpu);
     cpu->peak_performance = get_peak_performance(cpu);
   }
   else if(cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD) {
-    // Just the "normal" M2 exists for now
-    cpu->num_cpus = 2;
-    fill_cpu_info_avalanche_blizzard(cpu, 4, 4);
-    cpu->soc = get_soc();
+    fill_cpu_info_avalanche_blizzard(cpu, pcores, ecores);
+    cpu->soc = get_soc(cpu);
+    cpu->peak_performance = get_peak_performance(cpu);
+  }
+  else if(cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
+          cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_PRO ||
+          cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_MAX) {
+    fill_cpu_info_everest_sawtooth(cpu, pcores, ecores);
+    cpu->soc = get_soc(cpu);
     cpu->peak_performance = get_peak_performance(cpu);
   }
   else {
-    printBug("Found invalid cpu_family: 0x%.8X", cpu_family);
+    printBugCheckRelease("Found invalid cpu_family: 0x%.8X", cpu_family);
     return NULL;
   }
 
@@ -448,6 +475,15 @@ void print_debug(struct cpuInfo* cpu) {
       printf("%ld MHz\n", freq);
     }
   }
+
+  #if defined(__APPLE__) || defined(__MACH__)
+    printf("hw.cpufamily: 0x%.8X\n", get_sys_info_by_name("hw.cpufamily"));
+    printf("hw.cpusubfamily: 0x%.8X\n", get_sys_info_by_name("hw.cpusubfamily"));
+    printf("hw.nperflevels: %d\n", get_sys_info_by_name("hw.nperflevels"));
+    printf("hw.physicalcpu: %d\n", get_sys_info_by_name("hw.physicalcpu"));
+    printf("hw.perflevel0.physicalcpu: %d\n", get_sys_info_by_name("hw.perflevel0.physicalcpu"));
+    printf("hw.perflevel1.physicalcpu: %d\n", get_sys_info_by_name("hw.perflevel1.physicalcpu"));
+  #endif
 }
 
 void free_topo_struct(struct topology* topo) {

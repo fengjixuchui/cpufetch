@@ -30,6 +30,9 @@ static const char *hv_vendors_string[] = {
   [HV_VENDOR_VMWARE]    = "VMwareVMware",
   [HV_VENDOR_XEN]       = "XenVMMXenVMM",
   [HV_VENDOR_PARALLELS] = "lrpepyh vr",
+  [HV_VENDOR_PHYP]      = NULL,
+  [HV_VENDOR_BHYVE]     = "bhyve bhyve ",
+  [HV_VENDOR_APPLEVZ]   = "Apple VZ"
 };
 
 static char *hv_vendors_name[] = {
@@ -39,10 +42,11 @@ static char *hv_vendors_name[] = {
   [HV_VENDOR_VMWARE]    = "VMware",
   [HV_VENDOR_XEN]       = "Xen",
   [HV_VENDOR_PARALLELS] = "Parallels",
+  [HV_VENDOR_PHYP]      = "pHyp",
+  [HV_VENDOR_BHYVE]     = "bhyve",
+  [HV_VENDOR_APPLEVZ]   = "Apple VZ",
   [HV_VENDOR_INVALID]   = STRING_UNKNOWN
 };
-
-#define HYPERVISOR_NAME_MAX_LENGTH 17
 
 #define MASK 0xFF
 
@@ -223,9 +227,10 @@ int64_t get_peak_performance(struct cpuInfo* cpu, bool accurate_pp) {
     if(feat->FMA3 || feat->FMA4)
       flops = flops*2;
 
-    // Ice Lake has AVX512, but it has 1 VPU for AVX512, while
-    // it has 2 for AVX2. If this is a Ice Lake CPU, we are computing
-    // the peak performance supposing AVX2, not AVX512
+    // NOTE:
+    // Some CPUs (Ice Lake, Zen 4) have AVX512, but they have only
+    // 1 VPU for AVX512, while they have 2 for AVX2. In such cases,
+    // we are computing the peak performance supposing AVX2, not AVX512
     if(feat->AVX512 && vpus_are_AVX512(ptr))
       flops = flops*16;
     else if(feat->AVX || feat->AVX2)
@@ -260,23 +265,29 @@ struct hypervisor* get_hp_info(bool hv_present) {
 
   cpuid(&eax, &ebx, &ecx, &edx);
 
-  char name[13];
-  memset(name, 0, 13);
-  get_name_cpuid(name, ebx, ecx, edx);
-
-  bool found = false;
-  uint8_t len = sizeof(hv_vendors_string) / sizeof(hv_vendors_string[0]);
-
-  for(uint8_t v=0; v < len && !found; v++) {
-    if(strcmp(hv_vendors_string[v], name) == 0) {
-      hv->hv_vendor = v;
-      found = true;
-    }
-  }
-
-  if(!found) {
+  if(ebx == 0x0 && ecx == 0x0 && edx == 0x0) {
     hv->hv_vendor = HV_VENDOR_INVALID;
-    printWarn("Unknown hypervisor vendor: %s", name);
+    printWarn("Hypervisor vendor is empty");
+  }
+  else {
+    char name[13];
+    memset(name, 0, 13);
+    get_name_cpuid(name, ebx, ecx, edx);
+
+    bool found = false;
+    uint8_t len = sizeof(hv_vendors_string) / sizeof(hv_vendors_string[0]);
+
+    for(uint8_t v=0; v < len && !found; v++) {
+      if(hv_vendors_string[v] != NULL && strcmp(hv_vendors_string[v], name) == 0) {
+        hv->hv_vendor = v;
+        found = true;
+      }
+    }
+
+    if(!found) {
+      hv->hv_vendor = HV_VENDOR_INVALID;
+      printBug("Unknown hypervisor vendor: '%s'", name);
+    }
   }
 
   hv->hv_name = hv_vendors_name[hv->hv_vendor];
@@ -475,9 +486,8 @@ struct cpuInfo* get_cpu_info(void) {
     cpu->cpu_name = get_str_cpu_name_internal();
   }
   else {
-    cpu->cpu_name = emalloc(sizeof(char) * (strlen(STRING_UNKNOWN) + 1));
-    strcpy(cpu->cpu_name, STRING_UNKNOWN);
-    printWarn("Can't read cpu name from cpuid (needed extended level is 0x%.8X, max is 0x%.8X)", 0x80000004, cpu->maxExtendedLevels);
+    cpu->cpu_name = NULL;
+    printWarn("Can't read CPU name from cpuid (needed extended level is 0x%.8X, max is 0x%.8X)", 0x80000004, cpu->maxExtendedLevels);
   }
 
   cpu->topology_extensions = false;
@@ -527,12 +537,17 @@ struct cpuInfo* get_cpu_info(void) {
     ptr->first_core_id = first_core;
     ptr->feat = get_features_info(ptr);
 
-    // If any field of the struct is NULL,
-    // return inmideately, as further functions
-    // require valid fields (cach, topo, etc)
     ptr->arch = get_cpu_uarch(ptr);
     ptr->freq = get_frequency_info(ptr);
 
+    if (cpu->cpu_name == NULL && ptr == cpu) {
+      // If we couldnt read CPU name from cpuid, infer it now
+      cpu->cpu_name = infer_cpu_name_from_uarch(cpu->arch);
+    }
+
+    // If any field of the struct is NULL,
+    // return early, as next functions
+    // require non NULL fields in cach and topo
     ptr->cach = get_cache_info(ptr);
     if(ptr->cach == NULL) return cpu;
 
@@ -625,6 +640,7 @@ bool get_cache_topology_amd(struct cpuInfo* cpu, struct topology* topo) {
   return true;
 }
 
+#ifdef __linux__
 void get_topology_from_udev(struct topology* topo) {
   // TODO: To be improved in the future
   topo->total_cores = get_ncores_from_cpuinfo();
@@ -634,6 +650,7 @@ void get_topology_from_udev(struct topology* topo) {
   topo->smt_supported = 1;
   topo->sockets = 1;
 }
+#endif
 
 // Main reference: https://software.intel.com/content/www/us/en/develop/articles/intel-64-architecture-processor-topology-enumeration.html
 // Very interesting resource: https://wiki.osdev.org/Detecting_CPU_Topology_(80x86)
@@ -1084,12 +1101,29 @@ void print_debug(struct cpuInfo* cpu) {
   free_cpuinfo_struct(cpu);
 }
 
-// TODO: Query HV and Xeon Phi levels
+void print_raw_level(uint32_t reg) {
+  uint32_t eax = reg;
+  uint32_t ebx = 0;
+  uint32_t ecx = 0;
+  uint32_t edx = 0;
+
+  cpuid(&eax, &ebx, &ecx, &edx);
+
+  printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, 0x00, eax, ebx, ecx, edx);
+}
+
+void print_raw_sublevel(uint32_t reg, uint32_t reg2) {
+  uint32_t eax = reg;
+  uint32_t ebx = 0;
+  uint32_t ecx = reg2;
+  uint32_t edx = 0;
+
+  cpuid(&eax, &ebx, &ecx, &edx);
+
+  printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, reg2, eax, ebx, ecx, edx);
+}
+
 void print_raw(struct cpuInfo* cpu) {
-  uint32_t eax;
-  uint32_t ebx;
-  uint32_t ecx;
-  uint32_t edx;
   printf("%s\n\n", cpu->cpu_name);
   printf("  CPUID leaf sub   EAX        EBX        ECX        EDX       \n");
   printf("--------------------------------------------------------------\n");
@@ -1104,66 +1138,40 @@ void print_raw(struct cpuInfo* cpu) {
 
     printf("CPU %d:\n", c);
 
+    // Standard levels
     for(uint32_t reg=0x00000000; reg <= cpu->maxLevels; reg++) {
       if(reg == 0x00000004) {
         for(uint32_t reg2=0x00000000; reg2 < cpu->cach->max_cache_level; reg2++) {
-          eax = reg;
-          ebx = 0;
-          ecx = reg2;
-          edx = 0;
-
-          cpuid(&eax, &ebx, &ecx, &edx);
-
-          printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, reg2, eax, ebx, ecx, edx);
+          print_raw_sublevel(reg, reg2);
         }
       }
       else if(reg == 0x0000000B) {
         for(uint32_t reg2=0x00000000; reg2 < cpu->topo->smt_supported; reg2++) {
-          eax = reg;
-          ebx = 0;
-          ecx = reg2;
-          edx = 0;
-
-          cpuid(&eax, &ebx, &ecx, &edx);
-
-          printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, reg2, eax, ebx, ecx, edx);
+          print_raw_sublevel(reg, reg2);
         }
       }
       else {
-        eax = reg;
-        ebx = 0;
-        ecx = 0;
-        edx = 0;
-
-        cpuid(&eax, &ebx, &ecx, &edx);
-
-        printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, 0x00, eax, ebx, ecx, edx);
+        print_raw_level(reg);
       }
     }
+
+    // Hypervisor levels
+    for(uint32_t reg=0x40000000; reg <= 0x40000006; reg++) {
+      print_raw_level(reg);
+    }
+
+    // Extended levels
     for(uint32_t reg=0x80000000; reg <= cpu->maxExtendedLevels; reg++) {
       if(reg == 0x8000001D) {
         for(uint32_t reg2=0x00000000; reg2 < cpu->cach->max_cache_level; reg2++) {
-          eax = reg;
-          ebx = 0;
-          ecx = reg2;
-          edx = 0;
-
-          cpuid(&eax, &ebx, &ecx, &edx);
-
-          printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, reg2, eax, ebx, ecx, edx);
+          print_raw_sublevel(reg, reg2);
         }
       }
       else {
-        eax = reg;
-        ebx = 0;
-        ecx = 0;
-        edx = 0;
-
-        cpuid(&eax, &ebx, &ecx, &edx);
-
-        printf("  0x%.8X 0x%.2X: 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n", reg, 0x00, eax, ebx, ecx, edx);
+        print_raw_level(reg);
       }
     }
+
   }
 }
 

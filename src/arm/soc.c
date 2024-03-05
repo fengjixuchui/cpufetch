@@ -6,12 +6,14 @@
 #include "soc.h"
 #include "socs.h"
 #include "udev.h"
+#include "uarch.h"
 #include "../common/global.h"
 
 #if defined(__APPLE__) || defined(__MACH__)
   #include "sysctl.h"
 #endif
 
+#define NA -1
 #define min(a,b) (((a)<(b))?(a):(b))
 #define ARRAY_SIZE(arr)     (sizeof(arr) / sizeof((arr)[0]))
 
@@ -19,7 +21,8 @@ static char* soc_rpi_string[] = {
   "BCM2835",
   "BCM2836",
   "BCM2837",
-  "BCM2711"
+  "BCM2711",
+  "BCM2712"
 };
 
 char* toupperstr(char* str) {
@@ -48,6 +51,8 @@ uint32_t get_sid_from_nvmem(char* buf) {
 // SIDs list:
 // - https://linux-sunxi.org/SID_Register_Guide#Currently_known_SID.27s
 // - https://github.com/Dr-Noob/cpufetch/issues/173
+// - https://github.com/ThomasKaiser/sbc-bench/blob/master/sbc-bench.sh
+// - https://linux-sunxi.org/*CHIP_NAME*
 bool get_sunxisoc_from_sid(struct system_on_chip* soc, char* raw_name, uint32_t sid) {
   typedef struct {
     uint32_t sid;
@@ -56,23 +61,41 @@ bool get_sunxisoc_from_sid(struct system_on_chip* soc, char* raw_name, uint32_t 
 
   sidToSoC socFromSid[] = {
     // --- sun8i Family ---
+    // A33
+    {0x0461872a, {SOC_ALLWINNER_A33,    SOC_VENDOR_ALLWINNER, 40, "A33",  raw_name} },
+    // A83T
+    {0x32c00401, {SOC_ALLWINNER_A83T,   SOC_VENDOR_ALLWINNER, 28, "A83T", raw_name} },
+    {0x32c00403, {SOC_ALLWINNER_A83T,   SOC_VENDOR_ALLWINNER, 28, "A83T", raw_name} },
+    // S3
+    {0x12c00001, {SOC_ALLWINNER_S3,     SOC_VENDOR_ALLWINNER, 40, "S3",   raw_name} },
     // H2+
     {0x02c00042, {SOC_ALLWINNER_H2PLUS, SOC_VENDOR_ALLWINNER, 40, "H2+",  raw_name} },
     {0x02c00142, {SOC_ALLWINNER_H2PLUS, SOC_VENDOR_ALLWINNER, 40, "H2+",  raw_name} },
+    {0x02c00242, {SOC_ALLWINNER_H2PLUS, SOC_VENDOR_ALLWINNER, 40, "H2+",  raw_name} },
     // H3
     {0x02c00181, {SOC_ALLWINNER_H3,     SOC_VENDOR_ALLWINNER, 40, "H3",   raw_name} },
     {0x02c00081, {SOC_ALLWINNER_H3,     SOC_VENDOR_ALLWINNER, 40, "H3",   raw_name} },
-    // Others
+    // R40
     {0x12c00017, {SOC_ALLWINNER_R40,    SOC_VENDOR_ALLWINNER, 40, "R40",  raw_name} },
+    // V3S
     {0x12c00000, {SOC_ALLWINNER_V3S,    SOC_VENDOR_ALLWINNER, 40, "V3s",  raw_name} }, // 40nm is only my guess, no source
     // --- sun50i Family ---
+    // H5
     {0x82800001, {SOC_ALLWINNER_H5,     SOC_VENDOR_ALLWINNER, 40, "H5",   raw_name} },
+    // H6
+    {0x82c00001, {SOC_ALLWINNER_H6,     SOC_VENDOR_ALLWINNER, 28, "H6",   raw_name} },
     {0x82c00007, {SOC_ALLWINNER_H6,     SOC_VENDOR_ALLWINNER, 28, "H6",   raw_name} },
-    {0x92c000bb, {SOC_ALLWINNER_H64,    SOC_VENDOR_ALLWINNER, 40, "H64",  raw_name} }, // Same as A64
+    // H64
+    {0x92c000bb, {SOC_ALLWINNER_H64,    SOC_VENDOR_ALLWINNER, 40, "H64",  raw_name} }, // Same manufacturing process as A64
+    // H616
     {0x32c05000, {SOC_ALLWINNER_H616,   SOC_VENDOR_ALLWINNER, 28, "H616", raw_name} },
+    // H618
+    {0x33802000, {SOC_ALLWINNER_H618,   SOC_VENDOR_ALLWINNER, 28, "H618", raw_name} },
+    // A64
     {0x92c000ba, {SOC_ALLWINNER_A64,    SOC_VENDOR_ALLWINNER, 40, "A64",  raw_name} },
+    {0x92c001ba, {SOC_ALLWINNER_A64,    SOC_VENDOR_ALLWINNER, 40, "A64",  raw_name} },
     // Unknown
-    {0x00000000, {UNKNOWN,              SOC_VENDOR_UNKNOWN,   -1, "",    raw_name} }
+    {0x00000000, {UNKNOWN,              SOC_VENDOR_UNKNOWN,   -1, "",     raw_name} }
   };
 
   int index = 0;
@@ -111,7 +134,6 @@ bool match_broadcom(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "BCM2836",              "2836",              SOC_BCM_2836,   soc, 40)
   SOC_EQ(tmp, "BCM2837",              "2837",              SOC_BCM_2837,   soc, 40)
   SOC_EQ(tmp, "BCM2837B0",            "2837B0",            SOC_BCM_2837B0, soc, 40)
-  SOC_EQ(tmp, "BCM2711",              "2711",              SOC_BCM_2711,   soc, 28)
   SOC_EQ(tmp, "BCM21553",             "21553",             SOC_BCM_21553,  soc, 65)
   SOC_EQ(tmp, "BCM21553-Thunderbird", "21553 Thunderbird", SOC_BCM_21553T, soc, 65)
   SOC_EQ(tmp, "BCM21663",             "21663",             SOC_BCM_21663,  soc, 40)
@@ -121,6 +143,24 @@ bool match_broadcom(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "BCM28145",             "28145",             SOC_BCM_28145,  soc, 40)
   SOC_EQ(tmp, "BCM2157",              "2157",              SOC_BCM_2157,   soc, 65)
   SOC_EQ(tmp, "BCM21654",             "21654",             SOC_BCM_21654,  soc, 40)
+  SOC_EQ(tmp, "BCM2711",              "2711",              SOC_BCM_2711,   soc, 28)
+  SOC_EQ(tmp, "BCM2712",              "2712",              SOC_BCM_2712,   soc, 16)
+  SOC_END
+}
+
+// https://en.wikipedia.org/wiki/Google_Tensor
+bool match_google(char* soc_name, struct system_on_chip* soc) {
+  char* tmp;
+
+  if((tmp = strstr(soc_name, "gs")) == NULL)
+    return false;
+
+  soc->soc_vendor = SOC_VENDOR_GOOGLE;
+
+  SOC_START
+  SOC_EQ(tmp, "gs101", "Tensor",    SOC_GOOGLE_TENSOR,    soc, 5)
+  SOC_EQ(tmp, "gs201", "Tensor G2", SOC_GOOGLE_TENSOR_G2, soc, 5)
+  SOC_EQ(tmp, "gs301", "Tensor G3", SOC_GOOGLE_TENSOR_G3, soc, 4)
   SOC_END
 }
 
@@ -222,6 +262,10 @@ bool match_exynos(char* soc_name, struct system_on_chip* soc) {
   SOC_END
 }
 
+// https://www.phonemore.com/processors/mediatek/
+// https://phonedb.net/
+// https://en.wikipedia.org/wiki/List_of_MediaTek_systems_on_chips
+// https://wikimovel.com/index.php/MediaTek
 bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
   char* tmp;
   char* soc_name_upper = toupperstr(soc_name);
@@ -233,25 +277,38 @@ bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
 
   SOC_START
   // Dimensity //
+  SOC_EQ(tmp, "MT6893Z",  "Dimensity 1300",  SOC_MTK_MT6893Z,  soc, 6)
   SOC_EQ(tmp, "MT6893",   "Dimensity 1200",  SOC_MTK_MT6893,   soc, 6)
   SOC_EQ(tmp, "MT6891",   "Dimensity 1100",  SOC_MTK_MT6891,   soc, 6)
+  //SOC_EQ(tmp, "MT6877V",  "Dimensity 1080",  SOC_MTK_MT6877V   soc, 7) // There is a clash between this and another chip
+  SOC_EQ(tmp, "MT6879",   "Dimensity 1050",  SOC_MTK_MT6879,   soc, 6)
   SOC_EQ(tmp, "MT6889",   "Dimensity 1000",  SOC_MTK_MT6889,   soc, 7)
   SOC_EQ(tmp, "MT6885Z",  "Dimensity 1000L", SOC_MTK_MT6885Z,  soc, 7)
-  //SOC_EQ(tmp, "?",      "Dimensity 700",   SOC_MTK_,         soc, 7)
+  SOC_EQ(tmp, "MT6889Z",  "Dimensity 1000+", SOC_MTK_MT6889Z,  soc, 7)
+  SOC_EQ(tmp, "MT6883Z",  "Dimensity 1000C", SOC_MTK_MT6883Z,  soc, 7)
+  SOC_EQ(tmp, "MT6833",   "Dimensity 700",   SOC_MTK_MT6833,   soc, 7)
   SOC_EQ(tmp, "MT6853",   "Dimensity 720",   SOC_MTK_MT6853,   soc, 7)
   SOC_EQ(tmp, "MT6873",   "Dimensity 800",   SOC_MTK_MT6873,   soc, 7)
+  SOC_EQ(tmp, "MT6853V",  "Dimensity 800U",  SOC_MTK_MT6853V,  soc, 7)
+  SOC_EQ(tmp, "MT6833",   "Dimensity 810",   SOC_MTK_MT6833,   soc, 6)
   SOC_EQ(tmp, "MT6875",   "Dimensity 820",   SOC_MTK_MT6875,   soc, 7)
   // Helio //
   SOC_EQ(tmp, "MT6761D",  "Helio A20",       SOC_MTK_MT6761D,  soc, 12)
   SOC_EQ(tmp, "MT6761",   "Helio A22",       SOC_MTK_MT6761,   soc, 12)
   SOC_EQ(tmp, "MT6762D",  "Helio A25",       SOC_MTK_MT6762D,  soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G25",       SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G35",       SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G70",       SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G80",       SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G90",       SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G90T",      SOC_MTK_,         soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio G95",       SOC_MTK_,         soc, 12)
+  SOC_EQ(tmp, "MT6762G",  "Helio G25",       SOC_MTK_MT6762G,  soc, 12)
+  SOC_EQ(tmp, "MT6765G",  "Helio G35",       SOC_MTK_MT6765G,  soc, 12)
+  //SOC_EQ(tmp, "???",    "Helio G36",       SOC_MTK_MT6765G,  soc,  ?)
+  SOC_EQ(tmp, "MT6765H",  "Helio G37",       SOC_MTK_MT6765H,  soc, 12)
+  SOC_EQ(tmp, "MT6769V",  "Helio G70",       SOC_MTK_MT6769V,  soc, 12)
+  SOC_EQ(tmp, "MT6769T",  "Helio G80",       SOC_MTK_MT6769T,  soc, 12)
+  SOC_EQ(tmp, "MT6769Z",  "Helio G85",       SOC_MTK_MT6769Z,  soc, 12)
+  SOC_EQ(tmp, "MT6769H",  "Helio G88",       SOC_MTK_MT6769H,  soc, 12)
+  //SOC_EQ(tmp, "MT6785V/CD", "Helio G90",   SOC_MTK_MT6785V_CD, soc, 12) // How to distingish between this and G95?
+  SOC_EQ(tmp, "MT6785V/CC", "Helio G90T",    SOC_MTK_MT6785V_CC, soc, 12)
+  SOC_EQ(tmp, "MT6785V/CD", "Helio G95",     SOC_MTK_MT6785V_CD, soc, 12)
+  SOC_EQ(tmp, "MT6789",   "Helio G99",       SOC_MTK_MT6789,   soc,  6)
+  SOC_EQ(tmp, "MT8781V",  "Helio G99",       SOC_MTK_MT8781V,  soc,  6) // Same as MT6789
   SOC_EQ(tmp, "MT6755",   "Helio P10",       SOC_MTK_MT6755M,  soc, 28)
   SOC_EQ(tmp, "MT6755M",  "Helio P10 M",     SOC_MTK_MT6755M,  soc, 28)
   SOC_EQ(tmp, "MT6755T",  "Helio P15",       SOC_MTK_MT6755T,  soc, 28)
@@ -266,8 +323,8 @@ bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "MT6768",   "Helio P65",       SOC_MTK_MT6768,   soc, 12)
   SOC_EQ(tmp, "MT6771T",  "Helio P70",       SOC_MTK_MT6771,   soc, 12)
   SOC_EQ(tmp, "MT6771V",  "Helio P70",       SOC_MTK_MT6771,   soc, 12)
-  SOC_EQ(tmp, "MT6779",   "Helio P90",       SOC_MTK_MT6779,   soc, 12)
-  //SOC_EQ(tmp, "?",      "Helio P95",       SOC_MTK_,         soc, 12)
+  SOC_EQ(tmp, "MT6779V/CU", "Helio P90",     SOC_MTK_MT6779V_CU, soc, 12)
+  SOC_EQ(tmp, "MT6779V/CV", "Helio P95",     SOC_MTK_MT6779V_CV, soc, 12)
   SOC_EQ(tmp, "MT6795",   "Helio X10",       SOC_MTK_MT6795,   soc, 28)
   SOC_EQ(tmp, "MT6795T",  "Helio X10 T",     SOC_MTK_MT6795,   soc, 28)
   SOC_EQ(tmp, "MT6797",   "Helio X20",       SOC_MTK_MT6797,   soc, 20)
@@ -276,7 +333,31 @@ bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "MT6797T",  "Helio X25",       SOC_MTK_MT6797T,  soc, 20)
   SOC_EQ(tmp, "MT6797X",  "Helio X27",       SOC_MTK_MT6797X,  soc, 20)
   SOC_EQ(tmp, "MT6799",   "Helio X30",       SOC_MTK_MT6799,   soc, 10)
+  // Pentonic
+  SOC_EQ(tmp, "MT9618",   "Pentonic  700",   SOC_MTK_MT9618,   soc,  7)
+  SOC_EQ(tmp, "MT9653",   "Pentonic  700",   SOC_MTK_MT9653,   soc,  7)
+  SOC_EQ(tmp, "MT9689",   "Pentonic  700",   SOC_MTK_MT9689,   soc,  7) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT9972",   "Pentonic 1000",   SOC_MTK_MT9972,   soc,  7) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT9902",   "Pentonic 2000",   SOC_MTK_MT9902,   soc,  7)
+  SOC_EQ(tmp, "MT9982",   "Pentonic 2000",   SOC_MTK_MT9982,   soc,  7)
   // MT XXXX //
+  SOC_EQ(tmp, "MT5327",   "MT5327",          SOC_MTK_MT5327,   soc, NA)
+  SOC_EQ(tmp, "MT5329",   "MT5329",          SOC_MTK_MT5329,   soc, NA)
+  SOC_EQ(tmp, "MT5366",   "MT5366",          SOC_MTK_MT5366,   soc, NA)
+  SOC_EQ(tmp, "MT5389",   "MT5389",          SOC_MTK_MT5389,   soc, NA)
+  SOC_EQ(tmp, "MT5395",   "MT5395",          SOC_MTK_MT5395,   soc, NA)
+  SOC_EQ(tmp, "MT5396",   "MT5396",          SOC_MTK_MT5396,   soc, NA)
+  SOC_EQ(tmp, "MT5398",   "MT5398",          SOC_MTK_MT5398,   soc, NA)
+  SOC_EQ(tmp, "MT5505",   "MT5505",          SOC_MTK_MT5505,   soc, NA)
+  SOC_EQ(tmp, "MT5561",   "MT5561",          SOC_MTK_MT5561,   soc, NA)
+  SOC_EQ(tmp, "MT5580",   "MT5580",          SOC_MTK_MT5580,   soc, NA)
+  SOC_EQ(tmp, "MT5582",   "MT5582",          SOC_MTK_MT5582,   soc, NA)
+  SOC_EQ(tmp, "MT5592",   "MT5592",          SOC_MTK_MT5592,   soc, NA)
+  SOC_EQ(tmp, "MT5595",   "MT5595",          SOC_MTK_MT5595,   soc, NA)
+  SOC_EQ(tmp, "MT5596",   "MT5596",          SOC_MTK_MT5596,   soc, 28) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT5597",   "MT5597",          SOC_MTK_MT5597,   soc, 28) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT5895",   "MT5895",          SOC_MTK_MT5895,   soc, 28) // Same as MT9950*
+  SOC_EQ(tmp, "MT5889",   "MT5889",          SOC_MTK_MT5889,   soc, 28) // Same as MT9615 (https://www.displayspecifications.com/en/model/97272c1f)
   SOC_EQ(tmp, "MT6515",   "MT6515",          SOC_MTK_MT6515,   soc, 40)
   SOC_EQ(tmp, "MT6516",   "MT6516",          SOC_MTK_MT6516,   soc, 65)
   SOC_EQ(tmp, "MT6517",   "MT6517",          SOC_MTK_MT6517,   soc, 40)
@@ -322,6 +403,19 @@ bool match_mediatek(char* soc_name, struct system_on_chip* soc) {
   SOC_EQ(tmp, "MT8735",   "MT8735",          SOC_MTK_MT8735,   soc, 28)
   SOC_EQ(tmp, "MT8765B",  "MT8765B",         SOC_MTK_MT8765B,  soc, 28)
   SOC_EQ(tmp, "MT8783",   "MT8783",          SOC_MTK_MT8783,   soc, 28)
+  SOC_EQ(tmp, "MT9602",   "MT9602",          SOC_MTK_MT9602,   soc, 28) // Same as MT9675*
+  SOC_EQ(tmp, "MT9612",   "MT9612",          SOC_MTK_MT9612,   soc, 28) // Same as MT9685*
+  SOC_EQ(tmp, "MT9613",   "MT9613",          SOC_MTK_MT9613,   soc, 28) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT9615",   "MT9615",          SOC_MTK_MT9615,   soc, 28) // https://gadgetversus.com/processor/mediatek-mt9615-specs/
+  SOC_EQ(tmp, "MT9632",   "MT9632",          SOC_MTK_MT9632,   soc, 28) // Same as MT9675*
+  SOC_EQ(tmp, "MT9638",   "MT9638",          SOC_MTK_MT9638,   soc, 28) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT9652",   "MT9652",          SOC_MTK_MT9652,   soc, 28) // Same as MT9613*
+  SOC_EQ(tmp, "MT9675",   "MT9675",          SOC_MTK_MT9675,   soc, 28) // !! Assumption only, needs confirmation
+  SOC_EQ(tmp, "MT9685",   "MT9685",          SOC_MTK_MT9685,   soc, 28) // https://gadgetversus.com/processor/mediatek-mt9685-specs/
+  SOC_EQ(tmp, "MT9950",   "MT9950",          SOC_MTK_MT9950,   soc, 28) // https://gadgetversus.com/processor/mediatek-mt9950-specs/
+  SOC_EQ(tmp, "MT9686",   "MT9686",          SOC_MTK_MT9686,   soc, 28) // Same as MT9613*
+  // (*) Many SoCs are reported with different names but they are the same chip.
+  // Source: https://en.wikipedia.org/wiki/List_of_MediaTek_systems_on_chips#Digital_television_SoCs
   SOC_END
 }
 
@@ -535,6 +629,21 @@ bool match_special(char* soc_name, struct system_on_chip* soc) {
     return true;
   }
 
+  // Google Pixel 6
+  // https://github.com/Dr-Noob/cpufetch/issues/134
+  if(strcmp(soc_name, "oriole") == 0) {
+    fill_soc(soc, "Tensor", SOC_GOOGLE_TENSOR, 5);
+    return true;
+  }
+
+  // Google Pixel 8
+  // https://github.com/Dr-Noob/cpufetch/issues/198
+  if(strcmp(soc_name, "husky") == 0 ||
+     strcmp(soc_name, "zuma") == 0) {
+    fill_soc(soc, "Tensor G3", SOC_GOOGLE_TENSOR_G3, 4);
+    return true;
+  }
+
   return false;
 }
 
@@ -557,6 +666,9 @@ struct system_on_chip* parse_soc_from_string(struct system_on_chip* soc) {
     return soc;
 
   if(match_allwinner(raw_name, soc))
+    return soc;
+
+  if(match_google(raw_name, soc))
     return soc;
 
   match_broadcom(raw_name, soc);
@@ -623,6 +735,10 @@ char* get_rk_efuse(void) {
   char* rk_soc = read_file(_PATH_RK_EFUSE0, &filelen);
   if(rk_soc == NULL) {
     printWarn("read_file: %s: %s", _PATH_RK_EFUSE0, strerror(errno));
+    rk_soc = read_file(_PATH_RK_OTP0, &filelen);
+    if(rk_soc == NULL) {
+      printWarn("read_file: %s: %s", _PATH_RK_OTP0, strerror(errno));
+    }
   }
   return rk_soc;
 }
@@ -639,19 +755,23 @@ bool get_rk_soc_from_efuse(struct system_on_chip* soc, char* efuse) {
   rkToSoC socFromRK[] = {
     // TODO: Add RK2XXX
     // RK3XXX
-    {0x2388, {SOC_ROCKCHIP_3288, SOC_VENDOR_ROCKCHIP, 28, "RK3288",  NULL} },
-    {0x2392, {SOC_ROCKCHIP_3229, SOC_VENDOR_ROCKCHIP, 28, "RK3229",  NULL} }, // https://gadgetversus.com/processor/rockchip-rk3229-vs-rockchip-rk3128/
-    {0x3380, {SOC_ROCKCHIP_3308, SOC_VENDOR_ROCKCHIP, 28, "RK3308",  NULL} }, // https://en.t-firefly.com/product/rocrk3308cc?theme=pc
-    {0x3381, {SOC_ROCKCHIP_3318, SOC_VENDOR_ROCKCHIP, 28, "RK3318",  NULL} },
-    {0x3362, {SOC_ROCKCHIP_3326, SOC_VENDOR_ROCKCHIP, 28, "RK3326",  NULL} },
-    {0x3382, {SOC_ROCKCHIP_3328, SOC_VENDOR_ROCKCHIP, 28, "RK3328",  NULL} },
-    {0x3386, {SOC_ROCKCHIP_3368, SOC_VENDOR_ROCKCHIP, 28, "RK3368",  NULL} },
-    {0x3399, {SOC_ROCKCHIP_3399, SOC_VENDOR_ROCKCHIP, 28, "RK3399",  NULL} },
-    {0x5366, {SOC_ROCKCHIP_3566, SOC_VENDOR_ROCKCHIP, 22, "RK3566",  NULL} },
-    {0x5386, {SOC_ROCKCHIP_3568, SOC_VENDOR_ROCKCHIP, 22, "RK3568",  NULL} },
-    {0x5388, {SOC_ROCKCHIP_3588, SOC_VENDOR_ROCKCHIP,  8, "RK3588",  NULL} },
+    // Reverse order
+    {0x2388, {SOC_ROCKCHIP_3288,  SOC_VENDOR_ROCKCHIP, 28, "RK3288",  NULL} },
+    {0x2392, {SOC_ROCKCHIP_3229,  SOC_VENDOR_ROCKCHIP, 28, "RK3229",  NULL} }, // https://gadgetversus.com/processor/rockchip-rk3229-vs-rockchip-rk3128/
+    {0x3380, {SOC_ROCKCHIP_3308,  SOC_VENDOR_ROCKCHIP, 28, "RK3308",  NULL} }, // https://en.t-firefly.com/product/rocrk3308cc?theme=pc
+    {0x3381, {SOC_ROCKCHIP_3318,  SOC_VENDOR_ROCKCHIP, 28, "RK3318",  NULL} },
+    {0x3362, {SOC_ROCKCHIP_3326,  SOC_VENDOR_ROCKCHIP, 28, "RK3326",  NULL} },
+    {0x3382, {SOC_ROCKCHIP_3328,  SOC_VENDOR_ROCKCHIP, 28, "RK3328",  NULL} },
+    {0x3386, {SOC_ROCKCHIP_3368,  SOC_VENDOR_ROCKCHIP, 28, "RK3368",  NULL} },
+    {0x3399, {SOC_ROCKCHIP_3399,  SOC_VENDOR_ROCKCHIP, 28, "RK3399",  NULL} },
+    // Normal Order (https://github.com/Dr-Noob/cpufetch/issues/209)
+    {0x3528, {SOC_ROCKCHIP_3528,  SOC_VENDOR_ROCKCHIP, 28, "RK3528",  NULL} },
+    {0x3562, {SOC_ROCKCHIP_3562,  SOC_VENDOR_ROCKCHIP, 22, "RK3562",  NULL} },
+    {0x3566, {SOC_ROCKCHIP_3566,  SOC_VENDOR_ROCKCHIP, 22, "RK3566",  NULL} },
+    {0x3568, {SOC_ROCKCHIP_3568,  SOC_VENDOR_ROCKCHIP, 22, "RK3568",  NULL} },
+    {0x3588, {SOC_ROCKCHIP_3588,  SOC_VENDOR_ROCKCHIP,  8, "RK3588",  NULL} }, // No known way to distingish between S version: https://github.com/Dr-Noob/cpufetch/issues/188,209
     // Unknown
-    {0x0000, {UNKNOWN,           SOC_VENDOR_UNKNOWN,   -1,       "", NULL} }
+    {0x0000, {UNKNOWN,            SOC_VENDOR_UNKNOWN,   -1,       "", NULL} }
   };
 
   int index = 0;
@@ -682,6 +802,38 @@ struct system_on_chip* guess_soc_from_nvmem(struct system_on_chip* soc) {
   return soc;
 }
 
+struct system_on_chip* guess_soc_from_uarch(struct system_on_chip* soc, struct cpuInfo* cpu) {
+  // Currently we only support CPUs with only one uarch (in other words, one socket)
+  struct uarch* arch = cpu->arch;
+  if (arch == NULL) {
+    printWarn("guess_soc_from_uarch: uarch is NULL");
+    return soc;
+  }
+
+  typedef struct {
+    MICROARCH u;
+    struct system_on_chip soc;
+  } uarchToSoC;
+
+  uarchToSoC socFromUarch[] = {
+    {UARCH_TAISHAN_V110, {SOC_KUNPENG_920,  SOC_VENDOR_KUNPENG,  7, "920", NULL} },
+    {UARCH_TAISHAN_V200, {SOC_KUNPENG_930,  SOC_VENDOR_KUNPENG,  7, "930", NULL} }, // manufacturing process is not well-known
+    {UARCH_UNKNOWN,      {UNKNOWN,          SOC_VENDOR_UNKNOWN, -1,    "", NULL} }
+  };
+
+  int index = 0;
+  while(socFromUarch[index].u != UARCH_UNKNOWN) {
+    if(socFromUarch[index].u == get_uarch(arch)) {
+      fill_soc(soc, socFromUarch[index].soc.soc_name, socFromUarch[index].soc.soc_model, socFromUarch[index].soc.process);
+      return soc;
+    }
+    index++;
+  }
+
+  printWarn("guess_soc_from_uarch: No uarch matched the list");
+  return soc;
+}
+
 int hex2int(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
@@ -693,7 +845,13 @@ int hex2int(char c) {
   return -1;
 }
 
-// https://www.raspberrypi.org/documentation/hardware/raspberrypi/revision-codes/README.md
+/*
+ * https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#raspberry-pi-revision-codes:
+ * NOTE: As of the 4.9 kernel, all Raspberry Pi computers report BCM2835, even those with BCM2836,
+ * BCM2837 and BCM2711 processors. You should not use this string to detect the processor. Decode the
+ * revision code using the information below.
+ * https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#new-style-revision-codes-in-use
+ */
 struct system_on_chip* guess_soc_raspbery_pi(struct system_on_chip* soc) {
   char* revision = get_revision_from_cpuinfo();
 
@@ -709,22 +867,19 @@ struct system_on_chip* guess_soc_raspbery_pi(struct system_on_chip* soc) {
 
   int arr_size = ARRAY_SIZE(soc_rpi_string);
   int pppp = hex2int(revision[2]);
-  if(pppp == -1) {
-    printErr("[RPi] Found invalid RPi PPPP code: %s", revision[2]);
+  if(pppp < 0) {
+    printBug("[RPi] Found invalid RPi PPPP code: %s", pppp);
     return soc;
   }
 
-  if(pppp > arr_size) {
-    printErr("[RPi] Found invalid RPi PPPP code: %d while max is %d", pppp, arr_size);
+  if(pppp > arr_size-1) {
+    printBug("[RPi] Found invalid RPi PPPP code: %d (max is %d)", pppp, arr_size-1);
     return soc;
   }
 
   char* soc_raw_name = soc_rpi_string[pppp];
-  /*int soc_len = strlen(soc_raw_name);
-  soc->raw_name = emalloc(sizeof(char) * (soc_len + 1));
-  strncpy(soc->raw_name, soc_raw_name, soc_len + 1);*/
-
   match_broadcom(soc_raw_name, soc);
+
   return soc;
 }
 
@@ -756,7 +911,7 @@ struct system_on_chip* guess_soc_apple(struct system_on_chip* soc) {
       }
     }
     else {
-      printBug("Found invalid cpu_subfamily: 0x%.8X", cpu_subfamily);
+      printBugCheckRelease("Found invalid cpu_subfamily: 0x%.8X", cpu_subfamily);
       soc->soc_vendor = SOC_VENDOR_UNKNOWN;
     }
   }
@@ -765,20 +920,55 @@ struct system_on_chip* guess_soc_apple(struct system_on_chip* soc) {
     if(cpu_subfamily == CPUSUBFAMILY_ARM_HG) {
       fill_soc(soc, "M2", SOC_APPLE_M2, 5);
     }
+    else if(cpu_subfamily == CPUSUBFAMILY_ARM_HS) {
+      fill_soc(soc, "M2 Pro", SOC_APPLE_M2_PRO, 5);
+    }
+    else if(cpu_subfamily == CPUSUBFAMILY_ARM_HC_HD) {
+      // Could be M2 Max or M2 Ultra (2x M1 Max)
+      uint32_t physicalcpu = get_sys_info_by_name("hw.physicalcpu");
+      if(physicalcpu == 24) {
+        fill_soc(soc, "M2 Ultra", SOC_APPLE_M2_ULTRA, 5);
+      }
+      else if(physicalcpu == 12) {
+        fill_soc(soc, "M2 Max", SOC_APPLE_M2_MAX, 5);
+      }
+      else {
+        printBug("Found invalid physical cpu number: %d", physicalcpu);
+        soc->soc_vendor = SOC_VENDOR_UNKNOWN;
+      }
+    }
     else {
-      printBug("Found invalid cpu_subfamily: 0x%.8X", cpu_subfamily);
+      printBugCheckRelease("Found invalid cpu_subfamily: 0x%.8X", cpu_subfamily);
+      soc->soc_vendor = SOC_VENDOR_UNKNOWN;
+    }
+  }
+  else if(cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
+          cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_PRO ||
+          cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_MAX) {
+    // Check M3 version
+    if(cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH) {
+      fill_soc(soc, "M3", SOC_APPLE_M3, 3);
+    }
+    else if(cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_PRO) {
+      fill_soc(soc, "M3 Pro", SOC_APPLE_M3_PRO, 3);
+    }
+    else if(cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH_MAX) {
+      fill_soc(soc, "M3 Max", SOC_APPLE_M3_MAX, 3);
+    }
+    else {
+      printBugCheckRelease("Found invalid cpu_family: 0x%.8X", cpu_family);
       soc->soc_vendor = SOC_VENDOR_UNKNOWN;
     }
   }
   else {
-    printBug("Found invalid cpu_family: 0x%.8X", cpu_family);
+    printBugCheckRelease("Found invalid cpu_family: 0x%.8X", cpu_family);
     soc->soc_vendor = SOC_VENDOR_UNKNOWN;
   }
   return soc;
 }
 #endif
 
-struct system_on_chip* get_soc(void) {
+struct system_on_chip* get_soc(struct cpuInfo* cpu) {
   struct system_on_chip* soc = emalloc(sizeof(struct system_on_chip));
   soc->raw_name = NULL;
   soc->soc_vendor = SOC_VENDOR_UNKNOWN;
@@ -790,7 +980,7 @@ struct system_on_chip* get_soc(void) {
   if(isRPi) {
     soc = guess_soc_raspbery_pi(soc);
     if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
-      printWarn("SoC detection failed using revision code");
+      printErr("[RPi] SoC detection failed using revision code, falling back to cpuinfo detection");
     }
     else {
       return soc;
@@ -817,6 +1007,10 @@ struct system_on_chip* get_soc(void) {
     // If cpufinfo/Android (if available) detection fails, try with nvmem
     if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
       soc = guess_soc_from_nvmem(soc);
+    }
+    // If everything else failed, try infering it from the microarchitecture
+    if(soc->soc_vendor == SOC_VENDOR_UNKNOWN) {
+      soc = guess_soc_from_uarch(soc, cpu);
     }
   }
 #elif defined __APPLE__ || __MACH__

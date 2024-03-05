@@ -15,12 +15,15 @@ static char* soc_trademark_string[] = {
   [SOC_VENDOR_MEDIATEK]   = "MediaTek ",
   [SOC_VENDOR_EXYNOS]     = "Exynos ",
   [SOC_VENDOR_KIRIN]      = "Kirin ",
+  [SOC_VENDOR_KUNPENG]    = "Kunpeng ",
   [SOC_VENDOR_BROADCOM]   = "Broadcom BCM",
   [SOC_VENDOR_APPLE]      = "Apple ",
   [SOC_VENDOR_ROCKCHIP]   = "Rockchip ",
+  [SOC_VENDOR_GOOGLE]     = "Google ",
   // RISC-V
   [SOC_VENDOR_SIFIVE]     = "SiFive ",
   [SOC_VENDOR_STARFIVE]   = "StarFive ",
+  [SOC_VENDOR_SIPEED]     = "Sipeed ",
   // ARM & RISC-V
   [SOC_VENDOR_ALLWINNER]  = "Allwinner "
 };

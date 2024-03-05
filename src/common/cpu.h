@@ -16,7 +16,7 @@ enum {
   CPU_VENDOR_NVIDIA,
   CPU_VENDOR_APM,
   CPU_VENDOR_QUALCOMM,
-  CPU_VENDOR_HUAWUEI,
+  CPU_VENDOR_HUAWEI,
   CPU_VENDOR_SAMSUNG,
   CPU_VENDOR_MARVELL,
   CPU_VENDOR_PHYTIUM,
@@ -36,6 +36,9 @@ enum {
   HV_VENDOR_VMWARE,
   HV_VENDOR_XEN,
   HV_VENDOR_PARALLELS,
+  HV_VENDOR_PHYP,
+  HV_VENDOR_BHYVE,
+  HV_VENDOR_APPLEVZ,
   HV_VENDOR_INVALID
 };
 
@@ -122,7 +125,7 @@ struct features {
 
 struct extensions {
   char* str;
-  uint32_t mask;
+  uint64_t mask;
 };
 
 struct cpuInfo {

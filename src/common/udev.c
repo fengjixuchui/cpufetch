@@ -129,6 +129,27 @@ long get_cache_size_from_file(char* path) {
   return ret * 1024;
 }
 
+char* get_field_from_cpuinfo(char* CPUINFO_FIELD) {
+  int filelen;
+  char* buf;
+  if((buf = read_file(_PATH_CPUINFO, &filelen)) == NULL) {
+    printWarn("read_file: %s: %s:\n", _PATH_CPUINFO, strerror(errno));
+    return NULL;
+  }
+
+  char* tmp1 = strstr(buf, CPUINFO_FIELD);
+  if(tmp1 == NULL) return NULL;
+  tmp1 = tmp1 + strlen(CPUINFO_FIELD);
+  char* tmp2 = strstr(tmp1, "\n");
+
+  int strlen = (1 + (tmp2-tmp1));
+  char* hardware = emalloc(sizeof(char) * strlen);
+  memset(hardware, 0, sizeof(char) * strlen);
+  strncpy(hardware, tmp1, tmp2-tmp1);
+
+  return hardware;
+}
+
 long get_max_freq_from_file(uint32_t core) {
   char path[_PATH_FREQUENCY_MAX_LEN];
   sprintf(path, "%s%s/cpu%d%s%s", _PATH_SYS_SYSTEM, _PATH_SYS_CPU, core, _PATH_FREQUENCY, _PATH_FREQUENCY_MAX);
@@ -178,7 +199,13 @@ bool maps_equal(uint32_t* map1, uint32_t* map2, int n) {
   return true;
 }
 
-int get_num_caches_from_files(char** paths, int num_paths) {
+// Generic function to count the number of distinct
+// elements in the list of files passed in char** paths.
+// An element can be potentially anything.
+// We use this function to count:
+// - The number of caches
+// - The number of sockets
+int get_num_elements_from_files(char** paths, int num_paths) {
   int filelen;
   char* buf;
   char* tmpbuf;
@@ -193,10 +220,10 @@ int get_num_caches_from_files(char** paths, int num_paths) {
     num_bitmasks += (buf[i] == ',');
   }
 
-  // 2. Read cpu_shared_map from every core
-  uint32_t** shared_maps = emalloc(sizeof(uint32_t *) * num_paths);
+  // 2. Read map from every core
+  uint32_t** maps = emalloc(sizeof(uint32_t *) * num_paths);
   for(int i=0; i < num_paths; i++) {
-    shared_maps[i] = emalloc(sizeof(uint32_t) * num_bitmasks);
+    maps[i] = emalloc(sizeof(uint32_t) * num_bitmasks);
 
     if((buf = read_file(paths[i], &filelen)) == NULL) {
       printWarn("Could not open '%s'", paths[i]);
@@ -206,6 +233,7 @@ int get_num_caches_from_files(char** paths, int num_paths) {
     for(int j=0; j < num_bitmasks; j++) {
       char* end;
       tmpbuf = emalloc(sizeof(char) * (strlen(buf) + 1));
+      memset(tmpbuf, 0, sizeof(char) * (strlen(buf) + 1));
       char* commaend = strstr(buf, ",");
       if(commaend == NULL) {
         strcpy(tmpbuf, buf);
@@ -221,35 +249,43 @@ int get_num_caches_from_files(char** paths, int num_paths) {
         return -1;
       }
 
-      shared_maps[i][j] = (uint32_t) ret;
+      maps[i][j] = (uint32_t) ret;
       buf = commaend + 1;
       free(tmpbuf);
     }
   }
 
-  // 2. Count number of different masks; this is the number of caches
-  int num_caches = 0;
+  // 2. Count number of different masks; this is the number of elements
+  int num_elements = 0;
   bool found = false;
-  uint32_t** unique_shared_maps = emalloc(sizeof(uint32_t *) * num_paths);
+  uint32_t** unique_maps = emalloc(sizeof(uint32_t *) * num_paths);
   for(int i=0; i < num_paths; i++) {
-    unique_shared_maps[i] = emalloc(sizeof(uint32_t) * num_bitmasks);
+    unique_maps[i] = emalloc(sizeof(uint32_t) * num_bitmasks);
     for(int j=0; j < num_bitmasks; j++) {
-      unique_shared_maps[i][j] = 0;
+      unique_maps[i][j] = 0;
     }
   }
 
   for(int i=0; i < num_paths; i++) {
     for(int j=0; j < num_paths && !found; j++) {
-      if(maps_equal(shared_maps[i], unique_shared_maps[j], num_bitmasks)) found = true;
+      if(maps_equal(maps[i], unique_maps[j], num_bitmasks)) found = true;
     }
     if(!found) {
-      add_shared_map(shared_maps, i, unique_shared_maps, num_caches, num_bitmasks);
-      num_caches++;
+      add_shared_map(maps, i, unique_maps, num_elements, num_bitmasks);
+      num_elements++;
     }
     found = false;
   }
 
-  return num_caches;
+  return num_elements;
+}
+
+int get_num_caches_from_files(char** paths, int num_paths) {
+  return get_num_elements_from_files(paths, num_paths);
+}
+
+int get_num_sockets_from_files(char** paths, int num_paths) {
+  return get_num_elements_from_files(paths, num_paths);
 }
 
 int get_num_caches_by_level(struct cpuInfo* cpu, uint32_t level) {
@@ -277,4 +313,39 @@ int get_num_caches_by_level(struct cpuInfo* cpu, uint32_t level) {
   free(paths);
 
   return ret;
+}
+
+int get_num_sockets_package_cpus(struct topology* topo) {
+  // Get number of sockets using
+  // /sys/devices/system/cpu/cpu*/topology/package_cpus
+
+  char** paths = emalloc(sizeof(char *) * topo->total_cores);
+
+  for(int i=0; i < topo->total_cores; i++) {
+    paths[i] = emalloc(sizeof(char) * _PATH_PACKAGE_MAX_LEN);
+    sprintf(paths[i], "%s%s/cpu%d%s",  _PATH_SYS_SYSTEM, _PATH_SYS_CPU, i, _PATH_TOPO_PACKAGE_CPUS);
+  }
+
+  int ret = get_num_sockets_from_files(paths, topo->total_cores);
+
+  for(int i=0; i < topo->total_cores; i++)
+    free(paths[i]);
+  free(paths);
+
+  return ret;
+}
+
+// Inspired in is_devtree_compatible from lscpu
+bool is_devtree_compatible(char* str) {
+  int filelen;
+  char* buf;
+  if((buf = read_file("/proc/device-tree/compatible", &filelen)) == NULL) {
+    return false;
+  }
+
+  char* tmp;
+  if((tmp = strstr(buf, str)) == NULL) {
+    return false;
+  }
+  return true;
 }

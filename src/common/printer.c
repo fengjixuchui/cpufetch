@@ -336,6 +336,13 @@ struct ascii_logo* choose_ascii_art_aux(struct ascii_logo* logo_long, struct asc
   }
 }
 
+// https://no-color.org/
+bool is_color_enabled(void) {
+  const char *var_name = "NO_COLOR";
+  char *no_color = getenv(var_name);
+  return no_color == NULL || no_color[0] == '\0';
+}
+
 void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* term, int lf) {
   // 1. Choose logo
 #ifdef ARCH_X86
@@ -364,10 +371,14 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
     art->art = &logo_exynos;
   else if(art->vendor == SOC_VENDOR_KIRIN)
     art->art = &logo_kirin;
+  else if(art->vendor == SOC_VENDOR_KUNPENG)
+    art->art = &logo_kunpeng;
   else if(art->vendor == SOC_VENDOR_BROADCOM)
     art->art = &logo_broadcom;
   else if(art->vendor == SOC_VENDOR_APPLE)
     art->art = &logo_apple;
+  else if(art->vendor == SOC_VENDOR_GOOGLE)
+    art->art = &logo_google;
   else if(art->vendor == SOC_VENDOR_ALLWINNER)
     art->art = &logo_allwinner;
   else if(art->vendor == SOC_VENDOR_ROCKCHIP)
@@ -382,12 +393,17 @@ void choose_ascii_art(struct ascii* art, struct color** cs, struct terminal* ter
     art->art = choose_ascii_art_aux(&logo_starfive_l, &logo_starfive, term, lf);
   else if(art->vendor == SOC_VENDOR_ALLWINNER)
     art->art = &logo_allwinner;
+  else if(art->vendor == SOC_VENDOR_SIPEED)
+    art->art = &logo_sipeed;
   else
     art->art = &logo_riscv;
 #endif
 
   // 2. Choose colors
   struct ascii_logo* logo = art->art;
+  bool color = is_color_enabled();
+  if (!color)
+    art->style = STYLE_LEGACY;
 
   switch(art->style) {
     case STYLE_LEGACY:
@@ -681,6 +697,9 @@ bool print_cpufetch_ppc(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
     setAttribute(art, ATTRIBUTE_NAME, cpu_name);
   }
   setAttribute(art, ATTRIBUTE_UARCH, uarch);
+  if(cpu->hv->present) {
+    setAttribute(art, ATTRIBUTE_HYPERVISOR, cpu->hv->hv_name);
+  }
   setAttribute(art, ATTRIBUTE_TECHNOLOGY, manufacturing_process);
   setAttribute(art, ATTRIBUTE_FREQUENCY, max_frequency);
   uint32_t socket_num = get_nsockets(cpu->topo);
@@ -914,16 +933,14 @@ bool print_cpufetch_arm(struct cpuInfo* cpu, STYLE s, struct color** cs, struct 
 #endif
 
 #ifdef ARCH_RISCV
-// https://stackoverflow.com/questions/109023/count-the-number-of-set-bits-in-a-32-bit-integer
-int number_of_bits(uint32_t i) {
-  i = i - ((i >> 1) & 0x55555555);                 // add pairs of bits
-  i = (i & 0x33333333) + ((i >> 2) & 0x33333333);  // quads
-  i = (i + (i >> 4)) & 0x0F0F0F0F;                 // groups of 8
-
-  return (i * 0x01010101) >> 24;                   // horizontal sum of bytes
+// https://stackoverflow.com/a/2709523
+uint64_t number_of_bits(uint64_t i) {
+  i = i - ((i >> 1) & 0x5555555555555555);
+  i = (i & 0x3333333333333333) + ((i >> 2) & 0x3333333333333333);
+  return (((i + (i >> 4)) & 0xF0F0F0F0F0F0F0F) * 0x101010101010101) >> 56;
 }
 
-void print_ascii_riscv(struct ascii* art, uint32_t la, int32_t termw, const char** attribute_fields, uint32_t extensions_mask) {
+void print_ascii_riscv(struct ascii* art, uint32_t la, int32_t termw, const char** attribute_fields, uint64_t extensions_mask) {
   struct ascii_logo* logo = art->art;
   int attr_to_print = 0;
   int attr_type;
@@ -937,7 +954,7 @@ void print_ascii_riscv(struct ascii* art, uint32_t la, int32_t termw, const char
   int32_t space_up = ((int)logo->height - (int)(art->n_attributes_set + num_extensions))/2;
   int32_t space_down = (int)logo->height - (int)(art->n_attributes_set + num_extensions) - (int)space_up;
   uint32_t logo_pos = 0;
-  int32_t iters = max(logo->height, art->n_attributes_set);
+  int32_t iters = max(logo->height, art->n_attributes_set + num_extensions);
 
   struct line_buffer* lbuf = emalloc(sizeof(struct line_buffer));
   lbuf->buf = emalloc(sizeof(char) * LINE_BUFFER_SIZE);
